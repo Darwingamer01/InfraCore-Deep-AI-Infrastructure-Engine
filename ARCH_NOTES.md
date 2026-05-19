@@ -50,3 +50,32 @@ Production-grade AI infrastructure system. Backend/infra only. No UI framework.
 - base.py = ABC + config dataclass
 - {name}.py = concrete implementation (e.g. semantic.py, fixed.py)
 - test_{name}.py = pytest file, mirrors src structure
+
+## Day 10 — VectorDB Benchmark Findings
+
+**Production Insight**: There is no universal "best" HNSW config. Instead, there exists a **Pareto frontier** where each configuration point represents a different accuracy-latency tradeoff.
+
+### 100K Scale Results (384D)
+
+| Scenario | Config | QPS | Recall@10 | p99ms | Use Case |
+|----------|--------|-----|-----------|-------|----------|
+| **Speed** | m8_ef64 | 441 | 0.198 | 3.3 | Only viable with hybrid retrieval |
+| **Balanced** | m16_ef128 | 254 | 0.682 | 5.2 | Production systems with <10ms SLA |
+| **Accuracy** | m32_ef256 | 64 | 0.996 | 23.3 | Batch jobs, high-recall requirements |
+
+**Key Discovery**: At 100K vectors, aggressive `ef` values (64) achieve 441 QPS but find only 20% of true neighbors — unusable for RAG without fallback strategies.
+
+### Dimensionality Impact (10K scale)
+
+Higher vector dimensions (1024D vs 384D) reduce throughput ~40% for the same config, demonstrating the **curse of dimensionality** in approximate search.
+
+### Interview Framing
+
+**Don't say**: "m16_ef128 is best"
+
+**Do say**: "I mapped a Pareto frontier across scale/dimensionality/accuracy. Production choice depends on SLA:
+- **<5ms SLA**: ef=64 + hybrid retrieval (accept 80% miss rate)
+- **<10ms SLA**: ef=128 (balanced, 254 QPS, 68% recall)
+- **Batch jobs**: ef=256 (near-perfect recall, 4× latency)"
+
+**Evidence**: Charts in `eval_reports/qdrant_recall_vs_qps.png` + `qdrant_p99_latency.png` + JSON ground truth validation
