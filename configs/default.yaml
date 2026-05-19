@@ -1,0 +1,45 @@
+# InfraCore Default Configuration
+# Sprint 1: Chunking + Embedding + VectorDB
+
+chunking:
+  strategy: semantic
+  max_tokens: 512
+  overlap: 50
+  min_chunk_size: 100
+
+embedding:
+  model_name: BAAI/bge-m3
+  batch_size: 32
+  max_length: 512
+  normalize: true
+
+vectordb:
+  store_type: qdrant
+  collection_name: infracore_default
+  vector_size: 1024  # BGE-M3 output size
+  distance_metric: cosine
+
+retrieval:
+  top_k: 10
+  score_threshold: 0.0
+  rerank: false
+
+inference:
+  model: meta-llama/Llama-2-7b-hf
+  max_tokens: 256
+  temperature: 0.7
+  top_p: 0.95
+
+agent:
+  model: meta-llama/Llama-2-7b-hf
+  max_steps: 10
+  temperature: 0.7
+
+eval:
+  metrics: ["bleu", "rouge", "faithfulness"]
+  batch_size: 8
+
+ingest:
+  supported_formats: ["pdf", "docx", "md", "html", "txt"]
+  extract_metadata: true
+  preserve_tables: true

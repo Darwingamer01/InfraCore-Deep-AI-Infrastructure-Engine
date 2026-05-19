@@ -1,0 +1,265 @@
+# InfraCore â€” Sprint 0 Kickoff
+## Complete Project Scaffold for VS Code + GitHub Copilot (Claude Haiku 4.5)
+
+---
+
+## STEP 1 â€” Create Project on Your Machine
+
+Open PowerShell, run these exactly:
+
+```powershell
+# 1. Create project folder
+mkdir infracore
+cd infracore
+
+# 2. Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate
+
+# 3. Create folder structure
+mkdir src, src\infracore, src\infracore\chunking, src\infracore\embedding
+mkdir src\infracore\vectordb, src\infracore\retrieval, src\infracore\inference
+mkdir src\infracore\agents, src\infracore\eval, src\infracore\ingest
+mkdir configs, tests, tests\unit, tests\integration, benchmarks, docs
+mkdir data, data\raw, data\processed, eval_reports
+
+# 4. Create root files
+New-Item pyproject.toml, .env.example, .gitignore, README.md, ARCH_NOTES.md
+New-Item src\infracore\__init__.py
+New-Item src\infracore\chunking\__init__.py, src\infracore\chunking\base.py
+New-Item src\infracore\embedding\__init__.py, src\infracore\embedding\base.py
+New-Item src\infracore\vectordb\__init__.py, src\infracore\vectordb\base.py
+New-Item src\infracore\retrieval\__init__.py, src\infracore\retrieval\base.py
+New-Item src\infracore\ingest\__init__.py, src\infracore\ingest\base.py
+New-Item src\infracore\eval\__init__.py, src\infracore\eval\base.py
+New-Item src\infracore\agents\__init__.py, src\infracore\agents\base.py
+New-Item configs\default.yaml, configs\eval_ci.yaml
+New-Item tests\__init__.py, tests\unit\__init__.py, tests\integration\__init__.py
+New-Item benchmarks\run_bench.py, benchmarks\__init__.py
+New-Item docker-compose.yml
+```
+
+---
+
+## STEP 2 â€” Install Base Dependencies
+
+```powershell
+# With .venv activated:
+pip install fastapi uvicorn pydantic pydantic-settings
+pip install sentence-transformers transformers torch
+pip install qdrant-client
+pip install pypdfium2 python-docx markdown
+pip install ragas datasets
+pip install pytest pytest-asyncio httpx
+pip install structlog prometheus-client
+pip install pyyaml python-dotenv
+pip install --upgrade pip
+
+# Save deps
+pip freeze > requirements.txt
+```
+
+---
+
+## STEP 3 â€” Open VS Code
+
+```powershell
+code .
+# Select Python interpreter: Ctrl+Shift+P â†’ "Python: Select Interpreter" â†’ pick .venv
+```
+
+---
+
+## STEP 4 â€” ARCH_NOTES.md (paste this in, prevents Copilot hallucination)
+
+```markdown
+# InfraCore â€” Architecture Contract
+
+## Project Purpose
+Production-grade AI infrastructure system. Backend/infra only. No UI framework.
+
+## Core Principles
+1. Every subsystem has a typed ABC (Abstract Base Class) + Pydantic config
+2. All I/O is async (asyncio). No sync blocking calls.
+3. Result types are dataclasses, never raw dicts
+4. Every subsystem emits Prometheus metrics
+5. Config-driven: swap implementations via YAML, not code changes
+
+## Module Interfaces (NEVER break these)
+
+### BaseChunker (src/infracore/chunking/base.py)
+- Input: str (raw text), ChunkConfig (Pydantic)
+- Output: List[Chunk] â€” Chunk has: text, start_idx, end_idx, metadata dict
+
+### BaseEmbedder (src/infracore/embedding/base.py)
+- Input: List[str] texts, EmbedConfig (Pydantic)
+- Output: np.ndarray shape (N, dim)
+
+### BaseVectorStore (src/infracore/vectordb/base.py)
+- Methods: upsert(vectors, payloads), search(query_vec, top_k) â†’ List[SearchResult]
+
+### BaseRetriever (src/infracore/retrieval/base.py)
+- Input: str query, RetrieverConfig
+- Output: List[RetrievalResult] â€” has chunk, score, metadata
+
+### BaseEvaluator (src/infracore/eval/base.py)
+- Input: List[EvalSample] (query, context, answer, ground_truth)
+- Output: EvalReport (metrics dict + per-sample scores)
+
+## Stack
+- Python 3.11+, FastAPI, Pydantic v2, asyncio
+- Qdrant (primary vector store), pgvector (secondary)
+- sentence-transformers (BGE-M3, E5-large)
+- vLLM / Ollama for inference
+- RAGAS + custom probes for eval
+- Prometheus + structlog for observability
+- pytest-asyncio for all tests
+
+## Sprint Plan
+- Sprint 1 (wk 1-2): Ingest + Chunking + Embedding + Qdrant setup
+- Sprint 2 (wk 3-4): Hybrid retrieval + Reranking + VectorDB benchmark
+- Sprint 3 (wk 5-6): Inference optimization + Agent ReAct loop
+- Sprint 4 (wk 7-8): Eval framework CI + Multimodal retrieval
+
+## File Naming
+- base.py = ABC + config dataclass
+- {name}.py = concrete implementation (e.g. semantic.py, fixed.py)
+- test_{name}.py = pytest file, mirrors src structure
+```
+
+---
+
+## STEP 5 â€” pyproject.toml (paste this)
+
+```toml
+[project]
+name = "infracore"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "AI infrastructure engine â€” RAG, VectorDB, Inference, Agents, Eval"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:SetupBuildBackend"
+```
+
+---
+
+## STEP 6 â€” .gitignore (paste this)
+
+```
+.venv/
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+eval_reports/*.json
+data/raw/*
+data/processed/*
+.DS_Store
+```
+
+---
+
+## STEP 7 â€” FIRST FILE TO BUILD (Sprint 1 Day 1)
+
+### src/infracore/chunking/base.py
+Paste this Copilot prompt into the file as a comment, then hit Enter and let Copilot autocomplete:
+
+```python
+# INFRACORE â€” BaseChunker
+# Purpose: Abstract base class for all text chunking strategies.
+# Rules:
+#   - ChunkConfig is a Pydantic BaseModel (strategy, max_tokens, overlap, min_chunk_size)
+#   - Chunk is a dataclass (text: str, start_idx: int, end_idx: int, metadata: dict)
+#   - BaseChunker is an ABC with one abstract async method: chunk(text: str) -> List[Chunk]
+#   - No LangChain imports allowed anywhere
+#   - Use Python 3.11+ syntax, full type hints, docstrings
+# Write the complete implementation below:
+```
+
+---
+
+## STEP 8 â€” docker-compose.yml (Qdrant + Prometheus local dev)
+
+```yaml
+version: "3.9"
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml
+
+volumes:
+  qdrant_data:
+```
+
+Start services:
+```powershell
+docker compose up -d
+# Verify Qdrant running:
+curl http://localhost:6333/healthz
+```
+
+---
+
+## COPILOT PROMPTING STRATEGY (for Claude Haiku 4.5)
+
+### For each new file, use this format in your comment header:
+```
+# INFRACORE â€” [ModuleName]
+# Contract: follows ARCH_NOTES.md interface for [BaseClass]
+# Input: [exact types]
+# Output: [exact types]
+# Rules: [2-3 constraints â€” no LangChain, async-only, etc.]
+# Write the complete implementation:
+```
+
+### For benchmarks, use:
+```
+# INFRACORE BENCHMARK â€” [SubsystemName]
+# Purpose: measure [metric] across [variants]
+# Output: dict mapping variant_name â†’ {metric: value}
+# Use: asyncio.run(), time.perf_counter(), tqdm for progress
+# Write the benchmark harness:
+```
+
+### For tests, use:
+```
+# INFRACORE TEST â€” [ClassName]
+# Tests: [3-4 specific behaviors to test]
+# Use: pytest-asyncio, pytest.mark.asyncio, no mocks for core logic
+# Write the test suite:
+```
+
+---
+
+## SPRINT 1 BUILD ORDER (Week 1-2)
+
+Day 1: src/infracore/chunking/base.py â†’ fixed.py â†’ semantic.py
+Day 2: src/infracore/embedding/base.py â†’ bge_m3.py
+Day 3: src/infracore/vectordb/base.py â†’ qdrant_store.py
+Day 4: src/infracore/ingest/base.py â†’ pdf_parser.py â†’ html_parser.py
+Day 5: tests/unit/ for all above + docker compose up
+Day 6-7: benchmarks/chunking_bench.py â€” fixed vs semantic vs recursive on NQ dev set

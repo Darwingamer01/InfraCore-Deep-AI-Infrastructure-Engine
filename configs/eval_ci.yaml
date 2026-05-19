@@ -1,0 +1,30 @@
+# InfraCore CI/CD Evaluation Configuration
+# Used in GitHub Actions for regression testing
+
+chunking:
+  strategy: semantic
+  max_tokens: 512
+  overlap: 50
+  min_chunk_size: 100
+
+embedding:
+  model_name: BAAI/bge-m3
+  batch_size: 16  # Smaller for CI environment
+  max_length: 512
+  normalize: true
+
+vectordb:
+  store_type: qdrant
+  collection_name: infracore_ci
+  vector_size: 1024
+  distance_metric: cosine
+
+eval:
+  metrics: ["bleu", "rouge", "faithfulness", "ragas"]
+  batch_size: 4  # Small batch size for CI
+
+# Evaluation regression thresholds
+regression_thresholds:
+  faithfulness: 0.95  # Must not drop below 95% of previous
+  bleu: 0.98
+  rouge: 0.98
