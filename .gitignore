@@ -18,3 +18,4 @@ htmlcov/
 .ruff_cache/
 *.log
 logs/
+data/bench/dataset_n100000_d384_gaussian.npz
