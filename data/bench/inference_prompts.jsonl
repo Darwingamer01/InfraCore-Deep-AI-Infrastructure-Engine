@@ -1,0 +1,45 @@
+{"id": 0, "text": "What is 2+2?", "category": "short", "expected_tokens": 10}
+{"id": 1, "text": "List 3 colors", "category": "short", "expected_tokens": 15}
+{"id": 2, "text": "Who wrote Hamlet?", "category": "short", "expected_tokens": 12}
+{"id": 3, "text": "What is water?", "category": "short", "expected_tokens": 15}
+{"id": 4, "text": "Define photosynthesis", "category": "short", "expected_tokens": 20}
+{"id": 5, "text": "What is Python?", "category": "short", "expected_tokens": 15}
+{"id": 6, "text": "Spell 'encyclopedia'", "category": "short", "expected_tokens": 12}
+{"id": 7, "text": "What is AI?", "category": "short", "expected_tokens": 18}
+{"id": 8, "text": "Who is Einstein?", "category": "short", "expected_tokens": 15}
+{"id": 9, "text": "What is HTML?", "category": "short", "expected_tokens": 18}
+{"id": 10, "text": "Name 5 planets", "category": "short", "expected_tokens": 20}
+{"id": 11, "text": "What is Bitcoin?", "category": "short", "expected_tokens": 18}
+{"id": 12, "text": "Who invented electricity?", "category": "short", "expected_tokens": 15}
+{"id": 13, "text": "What is DNA?", "category": "short", "expected_tokens": 18}
+{"id": 14, "text": "List 3 programming languages", "category": "short", "expected_tokens": 20}
+{"id": 15, "text": "Explain why the sky is blue in simple terms", "category": "medium", "expected_tokens": 50}
+{"id": 16, "text": "What are the main causes of climate change? List them.", "category": "medium", "expected_tokens": 60}
+{"id": 17, "text": "How does photosynthesis work? Explain step by step.", "category": "medium", "expected_tokens": 70}
+{"id": 18, "text": "Describe the water cycle and its importance", "category": "medium", "expected_tokens": 65}
+{"id": 19, "text": "What are the benefits of exercise? Provide at least 3", "category": "medium", "expected_tokens": 60}
+{"id": 20, "text": "Explain how machine learning works at a high level", "category": "medium", "expected_tokens": 70}
+{"id": 21, "text": "What are the differences between DNA and RNA?", "category": "medium", "expected_tokens": 55}
+{"id": 22, "text": "How does the internet work? Give a brief overview", "category": "medium", "expected_tokens": 65}
+{"id": 23, "text": "What is the difference between correlation and causation?", "category": "medium", "expected_tokens": 60}
+{"id": 24, "text": "Explain quantum computing to someone unfamiliar with it", "category": "medium", "expected_tokens": 75}
+{"id": 25, "text": "What are the major principles of object-oriented programming?", "category": "medium", "expected_tokens": 70}
+{"id": 26, "text": "Describe the life cycle of a butterfly", "category": "medium", "expected_tokens": 50}
+{"id": 27, "text": "What is the difference between weather and climate?", "category": "medium", "expected_tokens": 55}
+{"id": 28, "text": "How do vaccines work? Explain the process", "category": "medium", "expected_tokens": 65}
+{"id": 29, "text": "What are the main causes of poverty and how can it be addressed?", "category": "medium", "expected_tokens": 80}
+{"id": 30, "text": "Explain the theory of evolution in detail. Discuss natural selection, adaptation, and the evidence supporting the theory.", "category": "long", "expected_tokens": 200}
+{"id": 31, "text": "Describe the role of artificial intelligence in modern healthcare. Include diagnostics, treatment planning, and patient monitoring.", "category": "long", "expected_tokens": 200}
+{"id": 32, "text": "What are the major geopolitical challenges facing the world today? Discuss their causes, impacts, and potential solutions.", "category": "long", "expected_tokens": 220}
+{"id": 33, "text": "Explain how neural networks and deep learning have transformed the field of computer vision. Include practical applications.", "category": "long", "expected_tokens": 200}
+{"id": 34, "text": "Discuss the environmental impact of renewable energy sources versus fossil fuels. Include economic considerations.", "category": "long", "expected_tokens": 210}
+{"id": 35, "text": "Explain the principles of supply chain management and how disruptions affect global trade and economics.", "category": "long", "expected_tokens": 200}
+{"id": 36, "text": "What is blockchain technology and how does it work? Discuss applications beyond cryptocurrency.", "category": "long", "expected_tokens": 190}
+{"id": 37, "text": "Describe the impact of social media on society, including benefits, risks, and regulatory challenges.", "category": "long", "expected_tokens": 210}
+{"id": 38, "text": "Explain the scientific method and why it is fundamental to empirical research. Discuss peer review and scientific consensus.", "category": "long", "expected_tokens": 200}
+{"id": 39, "text": "What are the main ethical considerations in artificial intelligence development and deployment?", "category": "long", "expected_tokens": 200}
+{"id": 40, "text": "Describe the structure and function of the human immune system. Include innate and adaptive immunity.", "category": "long", "expected_tokens": 210}
+{"id": 41, "text": "Explain how cities can transition to sustainable urban development. Include transportation, housing, and energy.", "category": "long", "expected_tokens": 220}
+{"id": 42, "text": "Discuss the role of central banks in managing monetary policy and controlling inflation.", "category": "long", "expected_tokens": 200}
+{"id": 43, "text": "What are the major milestones in the history of computing and how have they shaped modern technology?", "category": "long", "expected_tokens": 200}
+{"id": 44, "text": "Explain the principles of organizational psychology and how they apply to modern workplace management.", "category": "long", "expected_tokens": 210}
