@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter as PrometheusCounter, Histogram
 from pydantic import Field
 
-from infracore.ingest.base import IngestConfig
-from infracore.ingest.pdf_parser import BaseIngester, IngestError, IngestResult
+from src.infracore.ingest.base import IngestConfig
+from src.infracore.ingest.pdf_parser import BaseIngester, IngestError, IngestResult
 
 
 class MarkdownConfig(IngestConfig):
@@ -32,7 +32,7 @@ class MarkdownParser(BaseIngester):
         self.config = config
 
         # Prometheus metrics (unique per parser type)
-        self._counter = Counter(
+        self._counter = PrometheusCounter(
             "markdown_ingest_documents_total",
             "Total Markdown documents ingested",
         )

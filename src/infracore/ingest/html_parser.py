@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import List, Optional
 
 import html2text
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter as PrometheusCounter, Histogram
 from pydantic import Field
 
-from infracore.ingest.base import IngestConfig
-from infracore.ingest.pdf_parser import BaseIngester, IngestError, IngestResult
+from src.infracore.ingest.base import IngestConfig
+from src.infracore.ingest.pdf_parser import BaseIngester, IngestError, IngestResult
 
 
 class TitleExtractor(html.parser.HTMLParser):
@@ -63,7 +63,7 @@ class HTMLParser(BaseIngester):
         self.config = config
 
         # Prometheus metrics (unique per parser type)
-        self._counter = Counter(
+        self._counter = PrometheusCounter(
             "html_ingest_documents_total",
             "Total HTML documents ingested",
         )

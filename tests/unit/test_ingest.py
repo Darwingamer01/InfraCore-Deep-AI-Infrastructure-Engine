@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch, mock_open
 from dataclasses import dataclass
 
-from infracore.ingest.pdf_parser import PDFParser, PDFConfig, IngestError, IngestResult
-from infracore.ingest.html_parser import HTMLParser, HTMLConfig
-from infracore.ingest.markdown_parser import MarkdownParser, MarkdownConfig
+from src.infracore.ingest.pdf_parser import PDFParser, PDFConfig, IngestError, IngestResult
+from src.infracore.ingest.html_parser import HTMLParser, HTMLConfig
+from src.infracore.ingest.markdown_parser import MarkdownParser, MarkdownConfig
 
 
 # ============================================================================
@@ -23,8 +23,8 @@ async def test_pdf_ingest_returns_result_with_text():
     parser = PDFParser(config)
 
     # Mock pypdfium2.PdfDocument and its chain
-    with patch("infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
-        with patch("infracore.ingest.pdf_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
+        with patch("src.infracore.ingest.pdf_parser.Path") as mock_path_class:
             # Mock Path.exists()
             mock_path_inst = MagicMock()
             mock_path_inst.exists.return_value = True
@@ -57,8 +57,8 @@ async def test_pdf_skips_pages_below_min_chars():
     config = PDFConfig(min_page_chars=100)
     parser = PDFParser(config)
 
-    with patch("infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
-        with patch("infracore.ingest.pdf_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
+        with patch("src.infracore.ingest.pdf_parser.Path") as mock_path_class:
             mock_path_inst = MagicMock()
             mock_path_inst.exists.return_value = True
             mock_path_inst.name = "test.pdf"
@@ -103,8 +103,8 @@ async def test_pdf_normalize_whitespace():
     config = PDFConfig(normalize_whitespace=True, min_page_chars=10)
     parser = PDFParser(config)
 
-    with patch("infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
-        with patch("infracore.ingest.pdf_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
+        with patch("src.infracore.ingest.pdf_parser.Path") as mock_path_class:
             mock_path_inst = MagicMock()
             mock_path_inst.exists.return_value = True
             mock_path_inst.name = "test.pdf"
@@ -133,8 +133,8 @@ async def test_pdf_metadata_contains_expected_fields():
     config = PDFConfig()
     parser = PDFParser(config)
 
-    with patch("infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
-        with patch("infracore.ingest.pdf_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
+        with patch("src.infracore.ingest.pdf_parser.Path") as mock_path_class:
             mock_path_inst = MagicMock()
             mock_path_inst.exists.return_value = True
             mock_path_inst.name = "test.pdf"
@@ -176,8 +176,8 @@ async def test_pdf_ingest_error_corrupt_pdf():
     config = PDFConfig()
     parser = PDFParser(config)
 
-    with patch("infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
-        with patch("infracore.ingest.pdf_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.pdf_parser.pypdfium2") as mock_pdf:
+        with patch("src.infracore.ingest.pdf_parser.Path") as mock_path_class:
             mock_path_inst = MagicMock()
             mock_path_inst.exists.return_value = True
             mock_path_class.return_value = mock_path_inst
@@ -240,7 +240,7 @@ async def test_html_url_fetch_with_to_thread():
     config = HTMLConfig(min_content_chars=50)
     parser = HTMLParser(config)
 
-    with patch("infracore.ingest.html_parser.urllib.request.urlopen") as mock_urlopen:
+    with patch("src.infracore.ingest.html_parser.urllib.request.urlopen") as mock_urlopen:
         # Mock URL response with enough content
         mock_response = MagicMock()
         mock_response.read.return_value = b"<html><body>Fetched content with enough text to meet minimum requirements for the test.</body></html>"
@@ -285,7 +285,7 @@ author: Test
 
 This is the main content with enough text to meet minimum requirements."""
 
-    with patch("infracore.ingest.markdown_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.markdown_parser.Path") as mock_path_class:
         mock_path_inst = MagicMock()
         mock_path_inst.exists.return_value = True
         mock_path_inst.read_text.return_value = content
@@ -313,7 +313,7 @@ author: John Doe
 
 Main text here with sufficient content to meet minimum requirements."""
 
-    with patch("infracore.ingest.markdown_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.markdown_parser.Path") as mock_path_class:
         mock_path_inst = MagicMock()
         mock_path_inst.exists.return_value = True
         mock_path_inst.read_text.return_value = content
@@ -340,7 +340,7 @@ More content
 ### Subsection
 Even more content here"""
 
-    with patch("infracore.ingest.markdown_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.markdown_parser.Path") as mock_path_class:
         mock_path_inst = MagicMock()
         mock_path_inst.exists.return_value = True
         mock_path_inst.read_text.return_value = content
@@ -369,7 +369,7 @@ def hello():
 
 And text after code with additional content to meet minimum requirements for ingestion."""
 
-    with patch("infracore.ingest.markdown_parser.Path") as mock_path_class:
+    with patch("src.infracore.ingest.markdown_parser.Path") as mock_path_class:
         mock_path_inst = MagicMock()
         mock_path_inst.exists.return_value = True
         mock_path_inst.read_text.return_value = content

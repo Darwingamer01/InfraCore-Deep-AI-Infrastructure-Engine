@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import List, Optional
 
 import pypdfium2
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter as PrometheusCounter, Histogram
 from pydantic import BaseModel, ConfigDict, Field
 
-from infracore.ingest.base import BaseIngester, IngestConfig
+from src.infracore.ingest.base import BaseIngester, IngestConfig
 
 
 class IngestError(Exception):
@@ -61,7 +61,7 @@ class PDFParser(BaseIngester):
         self.config = config
 
         # Prometheus metrics (unique per parser type)
-        self._counter = Counter(
+        self._counter = PrometheusCounter(
             "pdf_ingest_documents_total",
             "Total PDF documents ingested",
         )
