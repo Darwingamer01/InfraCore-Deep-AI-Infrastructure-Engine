@@ -1,7 +1,7 @@
 from .clip_embedder import get_image_embedder, BaseImageEmbedder
 from .ocr import OCRPipeline
 from .retriever import ImageTextRetriever
-from .vlm import VLMDocumentQA
+from .vlm import VLMDocumentQA, AnswerResult, Source
 
 __all__ = [
     "get_image_embedder",
@@ -9,4 +9,6 @@ __all__ = [
     "OCRPipeline",
     "ImageTextRetriever",
     "VLMDocumentQA",
+    "AnswerResult",
+    "Source",
 ]

@@ -86,5 +86,201 @@ def test_clip_configurable_lazy_init():
 
 def test_vlm_stub_answer():
     vlm = VLMDocumentQA()
-    ans = asyncio.get_event_loop().run_until_complete(vlm.answer(b"img", "what is this?"))
-    assert "VLM-ANSWER-STUB" in ans
+    ans = asyncio.get_event_loop().run_until_complete(vlm.answer("what is this?", ocr_results=[], retrieved=[]))
+    # Verify AnswerResult structure
+    assert hasattr(ans, "text")
+    assert hasattr(ans, "sources")
+    assert hasattr(ans, "confidence")
+    assert isinstance(ans.sources, list)
+    # Empty context yields empty answer
+    assert ans.text == ""
+    assert len(ans.sources) == 0
+
+
+def test_ocr_integration_smoke():
+    # Run a lightweight OCR smoke test using a synthetic image. Skip if
+    # pytesseract or the tesseract binary are not available.
+    try:
+        import pytesseract  # noqa: F401
+        import shutil
+        if shutil.which("tesseract") is None:
+            raise RuntimeError("tesseract binary not found")
+    except Exception:
+        pytest.skip("pytesseract or tesseract not available; skipping OCR smoke test")
+
+    from infracore.multimodal.ocr import OCRPipeline
+    from PIL import Image, ImageDraw, ImageFont
+    import io
+
+    # create a small image with text
+    img = Image.new("RGB", (200, 60), color=(255, 255, 255))
+    d = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+    d.text((10, 10), "Hello 123", fill=(0, 0, 0), font=font)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    img_bytes = buf.getvalue()
+
+    ocr = OCRPipeline()
+
+    async def run():
+        res = await ocr.ocr([img_bytes])
+        assert isinstance(res, list)
+        assert len(res) == 1
+        r = res[0]
+        assert r.success is True
+        # Expect at least one word recognized
+        assert r.words_count >= 1
+
+    asyncio.get_event_loop().run_until_complete(run())
+
+
+def test_vlm_document_qa_basic():
+    from infracore.multimodal.vlm import VLMDocumentQA, Source
+    from infracore.multimodal.ocr import OCRResult
+
+    qa = VLMDocumentQA()
+
+    # OCR results with some text
+    ocr = [OCRResult(text="This is a scanned invoice for Acme Corp. Total due: $123.45", n_lines=1, words_count=8, success=True)]
+
+    # Retrieved documents
+    retrieved = [{"id": "doc1", "text": "The invoice from Acme Corp shows total $123.45 due on 2026-05-20."}]
+
+    ans = asyncio.get_event_loop().run_until_complete(qa.answer("What is the total due?", ocr_results=ocr, retrieved=retrieved))
+    assert ans.confidence > 0
+    assert isinstance(ans.text, str)
+    assert len(ans.sources) >= 1
+    
+    # Verify source provenance structure
+    src = ans.sources[0]
+    assert isinstance(src, Source)
+    assert src.source_type in ("ocr", "retrieved")
+    assert src.source_id  # should have an id
+    assert src.snippet  # should have supporting snippet text
+    assert src.confidence is None or isinstance(src.confidence, float)
+
+
+def test_vlm_empty_context():
+    from infracore.multimodal.vlm import VLMDocumentQA
+
+    qa = VLMDocumentQA()
+    ans = asyncio.get_event_loop().run_until_complete(qa.answer("Who wrote this?", ocr_results=[], retrieved=[]))
+    assert ans.text == ""
+    assert ans.confidence == 0.0
+
+
+def test_vlm_ocr_provenance():
+    """Verify OCR metadata (page, coordinates, confidence) is propagated to sources."""
+    from infracore.multimodal.vlm import VLMDocumentQA, Source
+    from infracore.multimodal.ocr import OCRResult
+
+    qa = VLMDocumentQA()
+
+    # OCR result with synthetic raw data (simulating pytesseract output)
+    ocr_raw = {
+        "left": [10, 30, 60],
+        "top": [10, 10, 10],
+        "width": [15, 25, 20],
+        "height": [20, 20, 20],
+        "conf": [95, 90, 88],  # confidence scores per word
+        "text": ["Total", "amount", "paid"],
+    }
+    ocr = [
+        OCRResult(
+            text="Total amount paid $500.00",
+            n_lines=1,
+            words_count=4,
+            raw=ocr_raw,
+            success=True,
+        )
+    ]
+
+    retrieved = []
+    ans = asyncio.get_event_loop().run_until_complete(qa.answer("How much was paid?", ocr_results=ocr, retrieved=retrieved))
+    
+    assert ans.confidence > 0
+    assert len(ans.sources) >= 1
+    
+    src = ans.sources[0]
+    assert isinstance(src, Source)
+    assert src.source_type == "ocr"
+    assert src.source_id.startswith("ocr:")
+    # OCR metadata should be extracted
+    assert src.coordinates is not None
+    assert isinstance(src.coordinates, list)
+    assert len(src.coordinates) > 0
+    # Verify coordinate structure
+    coord = src.coordinates[0]
+    assert "left" in coord
+    assert "top" in coord
+    assert "confidence" in coord
+    # Confidence should be averaged from OCR word confidences
+    assert src.confidence is not None and src.confidence > 0
+
+
+def test_vlm_retrieved_provenance():
+    """Verify retrieved document metadata is propagated to sources."""
+    from infracore.multimodal.vlm import VLMDocumentQA, Source
+    from infracore.multimodal.ocr import OCRResult
+
+    qa = VLMDocumentQA()
+
+    ocr = []
+    retrieved = [
+        {
+            "id": "doc1",
+            "text": "The invoice amount is $500.00 due immediately.",
+            "page": 1,
+            "confidence": 0.95,
+        }
+    ]
+
+    ans = asyncio.get_event_loop().run_until_complete(qa.answer("What is the invoice amount?", ocr_results=ocr, retrieved=retrieved))
+
+    assert ans.confidence > 0
+    assert len(ans.sources) >= 1
+
+    src = ans.sources[0]
+    assert isinstance(src, Source)
+    assert src.source_type == "retrieved"
+    assert src.source_id == "doc1"
+    assert src.page == 1
+    assert src.confidence == 0.95
+
+
+def test_vlm_mixed_sources():
+    """Verify provenance when mixing OCR and retrieved documents."""
+    from infracore.multimodal.vlm import VLMDocumentQA, Source
+    from infracore.multimodal.ocr import OCRResult
+
+    qa = VLMDocumentQA()
+
+    ocr = [
+        OCRResult(
+            text="Invoice from Company A",
+            n_lines=1,
+            words_count=3,
+            success=True,
+        )
+    ]
+
+    retrieved = [
+        {
+            "id": "ref1",
+            "text": "Company A invoice total $1000.00",
+            "page": 1,
+        }
+    ]
+
+    ans = asyncio.get_event_loop().run_until_complete(qa.answer("What is the invoice total?", ocr_results=ocr, retrieved=retrieved))
+
+    assert len(ans.sources) >= 1
+    src = ans.sources[0]
+    assert isinstance(src, Source)
+    # The answer should come from one of the sources
+    assert src.source_type in ("ocr", "retrieved")

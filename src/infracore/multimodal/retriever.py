@@ -20,8 +20,9 @@ class ImageTextRetriever:
 
     async def index(self, doc_id: str, image: bytes, text: str | None = None):
         if text is None:
-            ocr_texts = await self.ocr.ocr([image])
-            text = ocr_texts[0]
+            ocr_results = await self.ocr.ocr([image])
+            # OCRPipeline returns OCRResult objects; extract text if available
+            text = ocr_results[0].text if ocr_results and ocr_results[0].success else ""
         emb = await self.embedder.embed_images([image])
         self._store[doc_id] = (image, text, emb[0])
 
