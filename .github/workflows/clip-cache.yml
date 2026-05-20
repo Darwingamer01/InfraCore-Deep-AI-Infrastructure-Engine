@@ -1,0 +1,38 @@
+name: CI — CLIP cache (manual)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  clip-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Hugging Face Hub
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface/hub
+            ~/.cache/huggingface/modules
+          key: ${{ runner.os }}-hf-cache-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-cache-
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+
+      - name: Run CLIP smoke test (opt-in)
+        env:
+          RUN_CLIP_SMOKE: '1'
+        run: |
+          PYTHONPATH=src pytest tests/unit/test_multimodal.py::test_clip_embedder_and_retriever_smoke -q
