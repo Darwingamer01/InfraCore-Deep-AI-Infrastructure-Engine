@@ -191,3 +191,54 @@ async def test_multimodal_pipeline_graceful_fallback():
     
     print(f"\n--- Graceful Fallback Test ---")
     print(f"Empty context handled correctly: answer='{answer.text}', confidence={answer.confidence}")
+
+
+@pytest.mark.asyncio
+async def test_blip_backend_optional():
+    """Optional: Test BLIP backend if transformers library is available.
+    
+    This test skips gracefully if transformers/BLIP is not installed.
+    Requires: pip install transformers torch
+    Run with: PYTHONPATH=src pytest tests/integration/test_multimodal_pipeline.py::test_blip_backend_optional -q -vv -s
+    """
+    
+    try:
+        from transformers import BlipProcessor, BlipForQuestionAnswering  # noqa: F401
+    except ImportError:
+        pytest.skip("transformers library not available; skipping BLIP backend test")
+    
+    # Initialize VLMDocumentQA with BLIP backend
+    vlm = VLMDocumentQA(backend="blip")
+    assert vlm.backend_name == "blip", "Should use BLIP backend"
+    
+    # Test with simple text-based context (BLIP VQA fallback)
+    retrieved_docs = [
+        {
+            "id": "doc:invoice-001",
+            "text": "Invoice Total: $5,000.00. Payment due within 30 days.",
+            "page": 1,
+            "confidence": 0.95,
+        }
+    ]
+    
+    # Query using BLIP backend (currently falls back to rule-based since we don't have images)
+    answer = await vlm.answer(
+        question="What is the invoice total?",
+        ocr_results=[],
+        retrieved=retrieved_docs,
+    )
+    
+    # Verify structure
+    assert isinstance(answer, AnswerResult), "Should return AnswerResult"
+    assert answer.text, "Should produce an answer"
+    assert len(answer.sources) > 0, "Should have sources"
+    
+    source = answer.sources[0]
+    assert isinstance(source, Source), "Should be a Source object"
+    assert source.source_type == "retrieved", "Source should be from retrieval"
+    
+    print(f"\n--- BLIP Backend Integration Test ---")
+    print(f"Backend: {vlm.backend_name}")
+    print(f"Answer (confidence={answer.confidence:.2f}): {answer.text}")
+    print(f"Source: {source.source_type}:{source.source_id}")
+
