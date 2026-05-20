@@ -6,9 +6,21 @@ No external libraries (no NLTK, spaCy). Pure regex + Python.
 """
 
 import re
+import time
 from typing import List
 
+import structlog
+from prometheus_client import Counter, Summary
+
 from src.infracore.chunking.base import BaseChunker, Chunk, ChunkConfig
+
+logger = structlog.get_logger()
+
+# Metrics
+SEMANTIC_CHUNKER_CALLS = Counter("infracore_semantic_chunker_calls_total", "Total SemanticChunker.chunk calls")
+SEMANTIC_CHUNKER_CHUNKS = Counter("infracore_semantic_chunker_chunks_total", "Total chunks produced by SemanticChunker")
+SEMANTIC_CHUNKER_WORDS = Summary("infracore_semantic_chunker_words", "Words processed per SemanticChunker call")
+SEMANTIC_CHUNKER_LATENCY = Summary("infracore_semantic_chunker_latency_seconds", "Latency of SemanticChunker.chunk in seconds")
 
 
 class SemanticChunker(BaseChunker):
@@ -37,6 +49,9 @@ class SemanticChunker(BaseChunker):
         Returns:
             List of Chunk objects with metadata
         """
+        SEMANTIC_CHUNKER_CALLS.inc()
+        start_time = time.perf_counter()
+
         if not text or not text.strip():
             return []
 
@@ -79,25 +94,21 @@ class SemanticChunker(BaseChunker):
                     )
                     chunks.append(chunk)
 
-                    # Apply overlap: repeat last 1 sentence if possible
-                    overlap_sentences = 1
-                    if len(current_chunk_sentences) > overlap_sentences:
-                        current_chunk_sentences = current_chunk_sentences[
-                            -overlap_sentences:
-                        ]
-                        current_chunk_word_count = sum(
-                            len(s.split()) for s in current_chunk_sentences
-                        )
+                    # Apply overlap: use configured overlap interpreted as sentence count
+                    overlap_sentences = min(int(self.config.overlap), len(current_chunk_sentences))
+                    if overlap_sentences > 0 and len(current_chunk_sentences) > overlap_sentences:
+                        current_chunk_sentences = current_chunk_sentences[-overlap_sentences:]
+                        current_chunk_word_count = sum(len(s.split()) for s in current_chunk_sentences)
                     else:
                         current_chunk_sentences = []
                         current_chunk_word_count = 0
 
-                    # Update chunk_start_idx based on overlap
+                    # Update chunk_start_idx based on how far we've consumed text
                     if current_chunk_sentences:
                         overlap_text = " ".join(current_chunk_sentences)
-                        chunk_start_idx = len(chunk_text) - len(overlap_text) + chunk_start_idx
+                        chunk_start_idx = chunk_start_idx + len(chunk_text) - len(overlap_text)
                     else:
-                        chunk_start_idx = len(chunk_text) + chunk_start_idx
+                        chunk_start_idx = chunk_start_idx + len(chunk_text)
 
             # Add sentence to current chunk
             current_chunk_sentences.append(sentence)
@@ -119,6 +130,12 @@ class SemanticChunker(BaseChunker):
                     },
                 )
                 chunks.append(chunk)
+
+        # Metrics + logging
+        SEMANTIC_CHUNKER_CHUNKS.inc(len(chunks))
+        SEMANTIC_CHUNKER_WORDS.observe(sum(len(s.split()) for s in sentences))
+        SEMANTIC_CHUNKER_LATENCY.observe(time.perf_counter() - start_time)
+        logger.info("chunking.complete", strategy="semantic", num_chunks=len(chunks), total_sentences=len(sentences))
 
         return chunks
 

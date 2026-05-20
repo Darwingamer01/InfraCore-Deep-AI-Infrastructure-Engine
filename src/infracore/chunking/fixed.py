@@ -7,9 +7,18 @@ No external libraries. Pure async Python.
 
 from typing import List
 
+import structlog
+from prometheus_client import Counter, Summary
 from pydantic import Field
 
 from src.infracore.chunking.base import BaseChunker, Chunk, ChunkConfig
+
+logger = structlog.get_logger()
+
+# Metrics
+FIXED_CHUNKER_CALLS = Counter("infracore_fixed_chunker_calls_total", "Total FixedChunker.chunk calls")
+FIXED_CHUNKER_CHUNKS = Counter("infracore_fixed_chunker_chunks_total", "Total chunks produced by FixedChunker")
+FIXED_CHUNKER_WORDS = Summary("infracore_fixed_chunker_words", "Words processed per FixedChunker call")
 
 
 class FixedChunkConfig(ChunkConfig):
@@ -41,6 +50,8 @@ class FixedChunker(BaseChunker):
         Returns:
             List of Chunk objects with metadata
         """
+        FIXED_CHUNKER_CALLS.inc()
+
         if not text or not text.strip():
             return []
 
@@ -96,7 +107,6 @@ class FixedChunker(BaseChunker):
                 },
             )
             chunks.append(chunk)
-
             # Move to next chunk start (accounting for overlap)
             overlap_words = min(self.config.overlap, len(chunk_words) // 2)
             current_start_word_idx = chunk_end_word_idx - overlap_words
@@ -104,5 +114,10 @@ class FixedChunker(BaseChunker):
             # Prevent infinite loop if no overlap and small chunks
             if overlap_words == 0 and chunk_end_word_idx >= len(words):
                 break
+
+        # Metrics + logging
+        FIXED_CHUNKER_CHUNKS.inc(len(chunks))
+        FIXED_CHUNKER_WORDS.observe(len(words))
+        logger.info("chunking.complete", strategy="fixed", num_chunks=len(chunks), total_words=len(words))
 
         return chunks
