@@ -7,7 +7,15 @@ No external libraries. Pure async Python.
 
 from typing import List
 
+from pydantic import Field
+
 from src.infracore.chunking.base import BaseChunker, Chunk, ChunkConfig
+
+
+class FixedChunkConfig(ChunkConfig):
+    """Backward-compatible config with a default fixed strategy."""
+
+    strategy: str = Field(default="fixed", description="Chunking strategy: fixed")
 
 
 class FixedChunker(BaseChunker):
@@ -53,7 +61,12 @@ class FixedChunker(BaseChunker):
 
             # Skip if chunk is too small
             if len(chunk_words) < self.config.min_chunk_size:
-                break
+                if chunks:
+                    break
+                # Keep a single short chunk so small documents are still indexed.
+                # This preserves the minimum-size guard for later fragments.
+                if not chunk_words:
+                    break
 
             # Find byte positions for start_idx and end_idx
             chunk_text = " ".join(chunk_words)

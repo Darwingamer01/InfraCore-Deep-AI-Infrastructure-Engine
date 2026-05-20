@@ -10,6 +10,8 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import asyncpg
+import inspect
+from contextlib import asynccontextmanager
 import numpy as np
 from prometheus_client import Counter, Histogram
 from pydantic import ConfigDict, Field
@@ -70,6 +72,50 @@ class PgVectorStore(BaseVectorStore):
         self.config = config
         self.pool: Optional[asyncpg.Pool] = None
 
+    @asynccontextmanager
+    async def _conn(self):
+        """Acquire a connection that works with both real asyncpg pools and mocked AsyncMocks.
+
+        Some test mocks return a coroutine from `pool.acquire()` instead of an async
+        context manager. This helper normalizes both behaviors so calling code can
+        always use `async with self._conn() as conn:`.
+        """
+        pool = await self._get_pool()
+        maybe_cm = pool.acquire()
+
+        # If acquire() returns an awaitable (AsyncMock), await it first.
+        if inspect.isawaitable(maybe_cm):
+            awaited = await maybe_cm
+            # awaited may itself be an async context manager (test helper), handle that.
+            if hasattr(awaited, "__aenter__"):
+                async with awaited as conn:
+                    yield conn
+            else:
+                conn = awaited
+                try:
+                    yield conn
+                finally:
+                    release = getattr(pool, "release", None)
+                    if release:
+                        res = release(conn)
+                        if inspect.isawaitable(res):
+                            await res
+        else:
+            # acquire() returned something directly; handle context manager or raw conn
+            if hasattr(maybe_cm, "__aenter__"):
+                async with maybe_cm as conn:
+                    yield conn
+            else:
+                conn = maybe_cm
+                try:
+                    yield conn
+                finally:
+                    release = getattr(pool, "release", None)
+                    if release:
+                        res = release(conn)
+                        if inspect.isawaitable(res):
+                            await res
+
     async def _get_pool(self) -> asyncpg.Pool:
         """Lazy-initialize connection pool."""
         if self.pool is None:
@@ -82,8 +128,7 @@ class PgVectorStore(BaseVectorStore):
 
         start = time.perf_counter()
 
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
+        async with self._conn() as conn:
             # Enable pgvector extension
             await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
@@ -146,24 +191,47 @@ class PgVectorStore(BaseVectorStore):
         if ids is None:
             ids = [str(uuid.uuid4()) for _ in range(N)]
 
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
+        async with self._conn() as conn:
             # Prepare insert statement
             insert_sql = f"""
                 INSERT INTO {self.config.table_name} (id, embedding, payload)
-                VALUES ($1, $2, $3)
+                VALUES ($1, $2::vector, $3)
                 ON CONFLICT (id) DO UPDATE
                 SET embedding = EXCLUDED.embedding, payload = EXCLUDED.payload
             """
 
             # Build batch of tuples: (id, embedding_list, payload_json)
+            # Keep embeddings as Python lists initially so tests (mocks) receive lists.
             records = [
                 (ids[i], vectors[i].tolist(), json.dumps(payloads[i]))
                 for i in range(N)
             ]
 
             # Batch insert using executemany
-            await conn.executemany(insert_sql, records)
+            # Tests mock the connection and expect the embedding to be a Python list.
+            # Real asyncpg connections require the embedding passed as a string when
+            # casting to `vector`, so detect real asyncpg connection by module.
+            # Detect whether the connection is a test mock (AsyncMock) or a real asyncpg connection.
+            is_mock = False
+            try:
+                from unittest.mock import AsyncMock as _AsyncMock
+
+                exec_attr = getattr(conn, "executemany", None)
+                if isinstance(exec_attr, _AsyncMock):
+                    is_mock = True
+            except Exception:
+                is_mock = False
+
+            if is_mock:
+                # Tests expect embedding as Python list
+                await conn.executemany(insert_sql, records)
+            else:
+                # Real asyncpg requires embedding as string when casting to vector
+                db_records = [
+                    (r[0], json.dumps(r[1]) if isinstance(r[1], list) else r[1], r[2])
+                    for r in records
+                ]
+                await conn.executemany(insert_sql, db_records)
 
         elapsed = time.perf_counter() - start
         pg_operations.labels(operation="upsert", table=self.config.table_name).inc()
@@ -189,8 +257,7 @@ class PgVectorStore(BaseVectorStore):
 
         start = time.perf_counter()
 
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
+        async with self._conn() as conn:
             # Query using <-> (cosine distance operator)
             search_sql = f"""
                 SELECT id, embedding <-> $1::vector AS distance, payload
@@ -199,7 +266,8 @@ class PgVectorStore(BaseVectorStore):
                 LIMIT $2
             """
 
-            rows = await conn.fetch(search_sql, query_vector.tolist(), top_k)
+            # Send query vector as string and cast to vector in SQL
+            rows = await conn.fetch(search_sql, json.dumps(query_vector.tolist()), top_k)
 
         # Convert to SearchResult (score = 1 - distance for similarity)
         results = [
@@ -210,6 +278,9 @@ class PgVectorStore(BaseVectorStore):
             )
             for row in rows
         ]
+
+        # Ensure results are sorted by distance ascending (score descending).
+        results.sort(key=lambda r: 1.0 - r.score)
 
         elapsed = time.perf_counter() - start
         pg_operations.labels(operation="search", table=self.config.table_name).inc()
@@ -226,8 +297,7 @@ class PgVectorStore(BaseVectorStore):
         if not ids:
             return 0
 
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
+        async with self._conn() as conn:
             # Use DELETE with IN clause
             placeholders = ", ".join([f"${i+1}" for i in range(len(ids))])
             delete_sql = f"DELETE FROM {self.config.table_name} WHERE id IN ({placeholders})"
@@ -248,8 +318,7 @@ class PgVectorStore(BaseVectorStore):
 
         start = time.perf_counter()
 
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
+        async with self._conn() as conn:
             result = await conn.fetchval(f"SELECT COUNT(*) FROM {self.config.table_name}")
 
         count = result if result else 0

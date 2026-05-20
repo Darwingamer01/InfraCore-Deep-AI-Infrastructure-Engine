@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
+from scipy.special import expit
 from sentence_transformers import CrossEncoder
 
 from infracore.retrieval.base import RetrievalResult
@@ -109,12 +110,12 @@ class CrossEncoderReranker:
     def _score_batch(self, pairs: List[List[str]], batch_size: int) -> np.ndarray:
         """Score batch of query-document pairs."""
         scores = self.model.predict(pairs, batch_size=batch_size)
-        return scores
+        return expit(scores)
 
     def score_single(self, query: str, text: str) -> float:
         """Score a single query-document pair."""
         score = self.model.predict([[query, text]])[0]
-        return float(score)
+        return float(expit(score))
 
 
 class FastApproxReranker:

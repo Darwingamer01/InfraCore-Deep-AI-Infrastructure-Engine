@@ -65,7 +65,7 @@ class DenseRetriever(BaseRetriever):
 
             # Search vector store
             search_results = await self.vector_store.search(
-                query_vector=query_embedding.reshape(1, -1),
+                query_vector=query_embedding,
                 top_k=top_k,
             )
 

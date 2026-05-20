@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import List
 
 import numpy as np
+import torch
 from sentence_transformers import SentenceTransformer
 
 from infracore.retrieval.base import RetrievalResult
@@ -36,7 +37,7 @@ class ColBERTLiteReranker:
     Uses a sentence-transformer model that supports token embeddings (e.g., 'all-MiniLM-L6-v2').
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """Initialize tokenizer and embedding model."""
         self.model = SentenceTransformer(model_name)
         from transformers import AutoTokenizer
@@ -124,11 +125,31 @@ class ColBERTLiteReranker:
         )
 
         # Get token embeddings (from model's hidden state)
-        with asyncio.to_thread as hidden:
-            outputs = self.model(inputs, output_value="token_embeddings")
+        # Move inputs to the model device to avoid CPU/MPS mismatch
+        try:
+            model_device = next(self.model.parameters()).device
+        except StopIteration:
+            model_device = torch.device("cpu")
 
-        # outputs shape: (1, num_tokens, embedding_dim)
-        embeddings = outputs[0].cpu().numpy()
+        inputs = {k: v.to(model_device) for k, v in inputs.items()}
+
+        outputs = self.model(inputs, output_value="token_embeddings")
+
+        # Extract token embeddings from different possible output types
+        # Some model forwards return a list/tuple, others return a dict-like object
+        if isinstance(outputs, dict):
+            emb_tensor = outputs.get("token_embeddings") if outputs.get("token_embeddings") is not None else outputs.get("last_hidden_state")
+        elif isinstance(outputs, (list, tuple)):
+            emb_tensor = outputs[0]
+        else:
+            # Fallback: try to use it as a tensor-like
+            emb_tensor = outputs
+
+        if hasattr(emb_tensor, "cpu"):
+            embeddings = emb_tensor[0].detach().cpu().numpy()
+        else:
+            # If it's already a numpy array
+            embeddings = emb_tensor[0]
 
         return embeddings
 

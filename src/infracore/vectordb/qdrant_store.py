@@ -9,20 +9,37 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Histogram, REGISTRY
 from pydantic import BaseModel, ConfigDict, Field
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, HnswConfigDiff, PointStruct, VectorParams
+from qdrant_client.models import Distance, HnswConfigDiff, PointIdsList, PointStruct, VectorParams
 
 from src.infracore.vectordb.base import BaseVectorStore, SearchResult, VectorStoreConfig
 
+def _get_or_create_metric(factory, name: str, description: str, labelnames: List[str]):
+    """Return an existing Prometheus metric if the collector was already registered."""
+    try:
+        return factory(name, description, labelnames)
+    except ValueError:
+        for candidate_name in (name, name.removesuffix("_total"), f"{name}_created"):
+            collector = REGISTRY._names_to_collectors.get(candidate_name)
+            if collector is not None:
+                return collector
+        for collector, names in REGISTRY._collector_to_names.items():
+            if name in names or name.removesuffix("_total") in names:
+                return collector
+        raise
+
+
 # Prometheus metrics
-vectordb_operations = Counter(
+vectordb_operations = _get_or_create_metric(
+    Counter,
     "vectordb_operations_total",
     "Total vectordb operations",
     ["operation", "collection"],
 )
-vectordb_latency = Histogram(
+vectordb_latency = _get_or_create_metric(
+    Histogram,
     "vectordb_latency_seconds",
     "VectorDB operation latency",
     ["operation", "collection"],
@@ -163,7 +180,11 @@ class QdrantVectorStore(BaseVectorStore):
 
             # Convert to PointStruct list
             points = [
-                PointStruct(id=id_, vector=vec.tolist(), payload=payload)
+                PointStruct(
+                    id=int(id_) if isinstance(id_, str) and id_.isdigit() else id_,
+                    vector=vec.tolist(),
+                    payload=payload,
+                )
                 for id_, vec, payload in zip(batch_ids, batch_vectors, batch_payloads)
             ]
 
@@ -199,14 +220,25 @@ class QdrantVectorStore(BaseVectorStore):
         import time
 
         start = time.perf_counter()
+        query_vector_1d = np.asarray(query_vector).reshape(-1).tolist()
 
-        # Search in Qdrant
-        search_results = await self.client.search(
-            collection_name=self.config.collection_name,
-            query_vector=query_vector.tolist(),
-            query_filter=filter,
-            limit=top_k,
-        )
+        # Search in Qdrant (newer client versions expose query_points instead of search)
+        if hasattr(self.client, "search"):
+            search_results = await self.client.search(
+                collection_name=self.config.collection_name,
+                query_vector=query_vector_1d,
+                query_filter=filter,
+                limit=top_k,
+            )
+        else:
+            response = await self.client.query_points(
+                collection_name=self.config.collection_name,
+                query=query_vector_1d,
+                query_filter=filter,
+                limit=top_k,
+                with_payload=True,
+            )
+            search_results = getattr(response, "points", response)
 
         # Convert to SearchResult dataclass
         results = [
@@ -243,12 +275,13 @@ class QdrantVectorStore(BaseVectorStore):
         if not ids:
             return 0
 
-        # Convert string IDs to integers (Qdrant uses uint64)
-        int_ids = [int(id_) if id_.isdigit() else hash(id_) % (2**63) for id_ in ids]
+        # Convert numeric string IDs to integers; preserve UUID strings as-is.
+        int_ids = [int(id_) if isinstance(id_, str) and id_.isdigit() else id_ for id_ in ids]
 
         await self.client.delete(
             collection_name=self.config.collection_name,
-            points_selector=int_ids,
+            points_selector=PointIdsList(points=int_ids),
+            wait=True,
         )
 
         elapsed = time.perf_counter() - start

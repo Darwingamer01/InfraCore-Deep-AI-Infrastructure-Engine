@@ -23,11 +23,27 @@ class RetrieverConfig(BaseModel):
 
 @dataclass
 class RetrievalResult:
-    """Single retrieval result — a chunk + score."""
+    """Single retrieval result — flexible fields used across tests.
 
-    text: str
-    score: float
-    metadata: dict
+    Supports construction with either explicit `doc_id`/`source`/`score`
+    kwargs or the older `metadata` dict form. `__post_init__` copies
+    values from `metadata` when present to maintain backward compatibility.
+    """
+
+    doc_id: str | None = None
+    text: str | None = None
+    source: str | None = None
+    score: float | None = None
+    metadata: dict | None = None
+
+    def __post_init__(self):
+        if self.metadata:
+            if self.doc_id is None and "doc_id" in self.metadata:
+                self.doc_id = self.metadata.get("doc_id")
+            if self.source is None and "source" in self.metadata:
+                self.source = self.metadata.get("source")
+            if self.score is None and "score" in self.metadata:
+                self.score = self.metadata.get("score")
 
 
 class BaseRetriever(ABC):

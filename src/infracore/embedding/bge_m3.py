@@ -13,7 +13,15 @@ import torch
 from prometheus_client import Counter, Histogram
 from sentence_transformers import SentenceTransformer
 
+from pydantic import Field
+
 from src.infracore.embedding.base import BaseEmbedder, EmbedConfig
+
+
+class BGEConfig(EmbedConfig):
+    """Backward-compatible config with a default BGE-M3 model name."""
+
+    model_name: str = Field(default="BAAI/bge-m3", description="HuggingFace model ID or path")
 
 # Prometheus metrics (unique names to avoid conflicts)
 bge_embeddings_processed = Counter(
@@ -43,10 +51,18 @@ class BGEEmbedder(BaseEmbedder):
 
     def __init__(self, config: EmbedConfig):
         super().__init__(config)
-        self.model = SentenceTransformer(config.model_name)
-        self.embedding_dim = 1024
+        self.model_name = config.model_name
+        self.model = None
         self.device = self._detect_device()
+        self._load_model()
+
+    def _load_model(self) -> None:
+        """Load or reload the SentenceTransformer model for the current config."""
+        model_name = getattr(self, "model_name", self.config.model_name)
+        self.model_name = model_name
+        self.model = SentenceTransformer(model_name)
         self.model.to(self.device)
+        self.embedding_dim = int(self.model.get_embedding_dimension())
 
     def _detect_device(self) -> str:
         """Detect best available device: cuda > mps > cpu."""
