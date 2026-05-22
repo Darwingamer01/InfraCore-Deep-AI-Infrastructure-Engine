@@ -34,5 +34,6 @@ jobs:
       - name: Run CLIP smoke test (opt-in)
         env:
           RUN_CLIP_SMOKE: '1'
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           PYTHONPATH=src pytest tests/unit/test_multimodal.py::test_clip_embedder_and_retriever_smoke -q

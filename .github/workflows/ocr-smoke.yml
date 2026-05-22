@@ -30,5 +30,7 @@ jobs:
           pip install pytest pillow pytesseract
 
       - name: Run OCR smoke test
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           PYTHONPATH=src python -m pytest tests/unit/test_multimodal.py::test_ocr_integration_smoke -q -vv -s
