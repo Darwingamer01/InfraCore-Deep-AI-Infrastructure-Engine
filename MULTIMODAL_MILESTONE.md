@@ -1,4 +1,49 @@
-# Multimodal Document Intelligence + Persistent Storage — Milestone Complete
+Both are worth doing, but **do them sequentially, not in parallel**.
+
+## Recommended order
+
+**Run Qdrant server-mode tests first.** If they surface any issues, you want those fixed on `main` before opening a PR that reviewers will actually look at. A PR that has known untested paths is harder to review and merge cleanly.
+
+## Run Qdrant server-mode tests
+
+Start Docker, then run the optional integration test:
+
+```bash
+# Start Qdrant locally
+docker run -d -p 6333:6333 -p 6334:6334 --name qdrant-local qdrant/qdrant
+
+# Wait a moment, then run the optional test
+PYTHONPATH=src pytest tests/integration/test_qdrant_server.py -v -s
+```
+
+If the tests pass, that gives you a fully validated Qdrant path from in-memory to real server. If anything fails, fix it before opening the PR.
+
+## Then open a PR
+
+Once server-mode tests are green, open a PR with a description that references this milestone:
+
+```bash
+git checkout -b feat/multimodal-qdrant-milestone
+git push origin feat/multimodal-qdrant-milestone
+gh pr create \
+  --title "feat(multimodal): complete multimodal pipeline with Qdrant persistence" \
+  --body "Closes multimodal milestone.
+  
+  ## What's included
+  - CLIP embedder + OCR + multimodal retriever
+  - VLMDocumentQA with pluggable backends (rule-based + BLIP)
+  - Source provenance wiring (doc_id, page, bbox, confidence)
+  - QdrantRetriever with local and remote modes
+  - 10 Qdrant unit tests + 8 multimodal unit tests + integration tests
+  - CI workflows with HF_TOKEN support
+  
+  See RELEASE_NOTES/multimodal_release_2026-05-23.md for full details."
+```
+
+Which would you prefer to start with?****
+
+Sources
+****# Multimodal Document Intelligence + Persistent Storage — Milestone Complete
 
 **Status**: ✓ Production-Ready | **Tests**: 199 passed, 1 skipped | **Commits**: Multiple pushed to main
 

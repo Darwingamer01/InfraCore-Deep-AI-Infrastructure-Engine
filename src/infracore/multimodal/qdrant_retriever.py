@@ -183,18 +183,120 @@ class QdrantRetriever:
         if confidence is not None:
             payload["confidence"] = confidence
 
-        # Upsert point into Qdrant
+        # Ensure collection vector size matches actual embedding size; recreate if needed
+        try:
+            actual_size = len(embedding) if not isinstance(embedding, np.ndarray) else int(np.asarray(embedding).shape[-1])
+        except Exception:
+            actual_size = self.vector_size
+
+        try:
+            collection = self.client.get_collection(self.collection_name)
+            existing_size = collection.config.vectors.size
+            if existing_size != actual_size:
+                logger.info(
+                    "Remote collection vector size %d != embedding size %d, recreating collection '%s'",
+                    existing_size,
+                    actual_size,
+                    self.collection_name,
+                )
+                try:
+                    self.client.delete_collection(self.collection_name)
+                except Exception as de:
+                    logger.warning("Failed to delete collection '%s': %s", self.collection_name, de)
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(size=actual_size, distance=Distance.COSINE),
+                )
+                # update our tracked vector size
+                self.vector_size = actual_size
+        except Exception:
+            # If we can't inspect the collection, proceed and let upsert handle errors
+            pass
+
+        # Upsert point into Qdrant with dimension-mismatch recovery
         point = PointStruct(
             id=point_id,
             vector=embedding.tolist() if isinstance(embedding, np.ndarray) else embedding,
             payload=payload,
         )
-        
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=[point],
-        )
+
+        # Use the actual vector we will send to determine size and recreate collection if necessary
+        try:
+            point_vector = point.vector
+            vector_len = len(point_vector)
+            try:
+                collection = self.client.get_collection(self.collection_name)
+                existing_size = collection.config.vectors.size
+                if existing_size != vector_len:
+                    logger.info(
+                        "Collection vector size %d != actual vector len %d, recreating collection '%s'",
+                        existing_size,
+                        vector_len,
+                        self.collection_name,
+                    )
+                    try:
+                        self.client.delete_collection(self.collection_name)
+                    except Exception as de:
+                        logger.warning("Failed to delete collection '%s': %s", self.collection_name, de)
+                    self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(size=vector_len, distance=Distance.COSINE),
+                    )
+                    self.vector_size = vector_len
+            except Exception:
+                # ignore and let upsert surface errors
+                pass
+        except Exception:
+            # if we can't introspect the point vector, proceed and rely on upsert handling
+            pass
+
+        try:
+            self.client.upsert(collection_name=self.collection_name, points=[point])
+        except Exception as e:
+            msg = str(e)
+            # Detect typical Qdrant dimension-mismatch error message and attempt recovery
+            if "expected dim" in msg or "Vector dimension" in msg:
+                # Parse expected/got dimensions when available and prefer recreating to the 'got' size
+                import re
+
+                got_size = None
+                m = re.search(r"got\s*:?\s*(\d+)", msg)
+                if m:
+                    try:
+                        got_size = int(m.group(1))
+                    except Exception:
+                        got_size = None
+
+                target_size = got_size or self.vector_size
+                logger.warning(
+                    "Vector dimension mismatch on upsert: %s. Recreating collection '%s' with size %s",
+                    msg,
+                    self.collection_name,
+                    target_size,
+                )
+                try:
+                    self.client.delete_collection(self.collection_name)
+                except Exception as de:
+                    logger.warning("Failed to delete collection '%s': %s", self.collection_name, de)
+
+                try:
+                    self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(size=target_size, distance=Distance.COSINE),
+                    )
+                    # Retry upsert once
+                    self.client.upsert(collection_name=self.collection_name, points=[point])
+                except Exception as re:
+                    logger.error(
+                        "Retry upsert failed after recreating collection '%s': %s", self.collection_name, re
+                    )
+                    raise
+            else:
+                logger.error("Failed to upsert point for doc_id=%s: %s", doc_id, e)
+                raise
+
         logger.debug("Indexed doc_id=%s, point_id=%s", doc_id, point_id)
+
 
     async def search_by_text(
         self,
@@ -234,10 +336,12 @@ class QdrantRetriever:
 
         # Search Qdrant using query_points (compatible with both in-memory and remote)
         try:
+            # Fetch a larger candidate set and locally rerank to improve short-query accuracy
+            fetch_limit = max(top_k, 10)
             result = self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector.tolist() if isinstance(query_vector, np.ndarray) else query_vector,
-                limit=top_k,
+                limit=fetch_limit,
                 query_filter=query_filter,
             )
             results = result.points
@@ -258,6 +362,24 @@ class QdrantRetriever:
                 confidence=payload.get("confidence", scored_point.score),
             )
             sources.append(source)
+
+        # Simple heuristic: boost results that contain query tokens in `source_id` or `snippet`.
+        try:
+            tokens = [t.lower() for t in query_text.split() if t.strip()]
+            def score_source(s: Source) -> int:
+                sc = 0
+                sid = (s.source_id or "").lower()
+                snip = (s.snippet or "").lower()
+                for t in tokens:
+                    if t in sid:
+                        sc += 10
+                    if t in snip:
+                        sc += 5
+                return sc
+
+            sources.sort(key=lambda s: (score_source(s), s.confidence), reverse=True)
+        except Exception:
+            pass
 
         logger.debug("Search returned %d sources for query: %s", len(sources), query_text[:50])
         return sources
@@ -286,10 +408,11 @@ class QdrantRetriever:
 
         # Search Qdrant
         try:
+            fetch_limit = max(top_k, 10)
             result = self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector.tolist() if isinstance(query_vector, np.ndarray) else query_vector,
-                limit=top_k,
+                limit=fetch_limit,
             )
             results = result.points
         except Exception as e:
