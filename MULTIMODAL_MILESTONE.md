@@ -1,21 +1,28 @@
-# Multimodal Document Intelligence — Milestone Complete
+# Multimodal Document Intelligence + Persistent Storage — Milestone Complete
 
-**Status**: ✓ Production-Ready | **Tests**: 187 passed, 1 skipped | **Commits**: 2 pushed to main
+**Status**: ✓ Production-Ready | **Tests**: 199 passed, 1 skipped | **Commits**: Multiple pushed to main
 
 ## What's New
 
-### Core Features
+### Core Features (Phase 1)
 - **CLIP Embedder**: Configurable lazy-loaded image/text embeddings (device-aware, fallback dummy)
 - **OCR Pipeline**: Pytesseract integration with word-level metadata extraction + graceful fallbacks
 - **Multimodal Retriever**: In-memory CLIP-powered image-text indexing
-- **VLM Document QA**: Rule-based deterministic answer generation with structured provenance
+- **VLM Document QA**: Rule-based + pluggable BLIP-backed deterministic answer generation with structured provenance
 - **Source Provenance**: Full traceability (doc id, page, word coordinates, confidence scores)
 
+### Persistent Storage (Phase 2)
+- **Qdrant Retriever**: Local (in-memory/path) and remote (server) vector storage
+- **Auto-detected Embeddings**: Dynamically adapts to embedder dimensionality (CLIP 512D, etc.)
+- **Rich Payloads**: source_type, doc_id, page, bbox, snippet, confidence per vector point
+- **Deterministic IDs**: Idempotent upserts via hash-based point ID generation
+- **Source Integration**: Seamless Source provenance output compatible with VLMDocumentQA
+
 ### Quality Assurance
-- **Unit Tests**: 9 tests covering embedder, OCR, VLM, and provenance extraction
-- **Integration Tests**: 3 tests validating end-to-end image → OCR → QA pipeline
-- **Full Suite**: 187 passed, 1 skipped — zero regressions
-- **CI Workflows**: CLIP cache + OCR smoke tests (manual dispatch)
+- **Unit Tests**: 9 multimodal + 10 Qdrant = 19 tests (all passing)
+- **Integration Tests**: 3 pipeline + optional 4 server-mode tests
+- **Full Suite**: 199 passed, 1 skipped — zero regressions
+- **CI Workflows**: CLIP cache + OCR smoke tests with HF_TOKEN support (manual dispatch)
 
 ## Architecture
 
@@ -60,6 +67,11 @@ tests/integration/test_multimodal_pipeline.py::test_multimodal_pipeline_with_ret
 
 tests/integration/test_multimodal_pipeline.py::test_multimodal_pipeline_graceful_fallback PASSED
   - Empty context handled gracefully
+
+tests/integration/test_multimodal_pipeline.py::test_blip_backend_optional PASSED
+  - Backend: BLIP (`Salesforce/blip-vqa-base`) validated end-to-end
+  - Notes: model download (~1.5GB) from Hugging Face Hub; test requires `transformers` + `torch`.
+  - Caveat: significant download and runtime memory/compute cost; consider using the `clip-cache.yml` workflow or setting `HF_TOKEN` to cache and avoid rate limits.
 ```
 
 ## Usage
@@ -102,6 +114,18 @@ for source in answer.sources:
 - `tests/integration/test_multimodal_pipeline.py` — Integration tests
 - `.github/workflows/clip-cache.yml` — CLIP model cache workflow
 - `.github/workflows/ocr-smoke.yml` — OCR smoke test workflow
+
+## Qdrant Persistence (Preferred Retrieval Backend)
+
+- **Status**: Implemented and unit-tested (in-memory + local path + remote modes)
+- **Module**: `src/infracore/multimodal/qdrant_retriever.py` — Qdrant-backed retriever
+- **Modes supported**: `:memory:` (in-memory), local path (persistent on-disk), and remote (URL + API key)
+- **Auto-detection**: Embedding dimensionality is auto-detected from the configured embedder on first use.
+- **Payloads**: Each point stores `source_type`, `doc_id`, `page`, `bounding_box`, `snippet`, and `confidence` to preserve full provenance.
+- **Compatibility**: Returns `Source` objects compatible with `VLMDocumentQA` and `AnswerResult` without breaking existing interfaces.
+- **Tests**: 10 unit tests added for in-memory mode; optional integration tests for server mode (skips if unavailable).
+
+Note: If a remote Qdrant server already contains a collection with a different vector dimension, server-mode operations will fail with a dimension-mismatch error. The retriever auto-detects vector size on first index and will recreate a local collection if necessary; for remote servers, ensure the collection vector size matches your embedder or recreate the collection with the correct `vectors` config.
 
 ## Next Steps (Optional)
 
