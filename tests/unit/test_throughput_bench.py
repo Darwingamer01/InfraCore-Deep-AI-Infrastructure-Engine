@@ -2,6 +2,7 @@ import asyncio
 import importlib
 import sys
 from pathlib import Path
+import json
 
 
 # Robust import: add repo root to sys.path if needed so tests can run in CI and local
@@ -20,6 +21,11 @@ except ModuleNotFoundError:
 
 BenchConfig = bench_mod.BenchConfig
 run_benchmark = bench_mod.run_benchmark
+p99_ms = bench_mod.p99_ms
+ollama_tokens_per_second = bench_mod.ollama_tokens_per_second
+write_results_json = bench_mod.write_results_json
+write_markdown_summary = bench_mod.write_markdown_summary
+BenchResult = bench_mod.BenchResult
 
 
 def test_bench_module_loads_and_has_classes():
@@ -33,6 +39,48 @@ def test_bench_module_loads_and_has_classes():
         prompt_length=50,
     )
     assert cfg.backend == "ollama"
+
+
+def test_p99_ms_helper():
+    samples = [10.0, 20.0, 30.0, 40.0, 50.0]
+    assert p99_ms(samples) == 50.0
+
+
+def test_ollama_tps_helper():
+    # 200 tokens in 2 seconds
+    tps = ollama_tokens_per_second(200, 2_000_000_000)
+    assert round(tps, 2) == 100.00
+
+
+def test_result_writers(tmp_path):
+    result = BenchResult(
+        config_name="hf_fake_b1_p50",
+        backend="hf",
+        model="fake/model",
+        concurrency=1,
+        batch_size=1,
+        n_requests=10,
+        tokens_per_second=12.5,
+        p99_latency_ms=250.0,
+        memory_mb_delta=100.0,
+        error_rate=0.0,
+        requests_succeeded=10,
+        total_time_s=4.0,
+        ttft_ms_mean=0.0,
+    )
+    json_path = write_results_json([result], tmp_path)
+    md_path = write_markdown_summary([result], tmp_path)
+
+    assert json_path.exists()
+    assert md_path.exists()
+
+    payload = json.loads(json_path.read_text())
+    assert "results" in payload
+    assert payload["results"][0]["backend"] == "hf"
+
+    md = md_path.read_text()
+    assert "| engine | model |" in md
+    assert "fake/model" in md
 
 
 def test_run_benchmark_skips_when_unavailable():
