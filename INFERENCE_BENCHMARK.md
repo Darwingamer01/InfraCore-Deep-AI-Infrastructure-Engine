@@ -128,6 +128,24 @@ c1: 1,000 ms → c4: 890 ms → c8: 1,250 ms
 
 ---
 
+### Interpretation: Ollama Sanity Matrix
+
+This section summarizes the narrow Ollama-only sanity matrix run against `llama3.2:1b` with 10 runs per config and warm-up enabled.
+
+**What the numbers show**
+- Throughput stayed flat across batch sizes, ranging from `66.2` to `69.7` tokens/sec.
+- Ollama CPU mode is effectively serialized here, so batch size is not a throughput lever in this setup.
+- p99 latency is driven more by completion behavior than by prompt length alone; the shorter prompt variant produced the higher tail latency because it allowed the model to generate more output.
+- The first-run `-320.64 MB` delta was a cold-start artifact. Warm-up removes that anomaly and steady-state memory is near zero delta.
+- TTFT mean stayed stable at roughly `99` to `108 ms` across all configs, which confirms the model is hot after warm-up.
+
+**Production takeaway**
+- Ollama on CPU is a good fit for single-user development workloads, local prototyping, and low-QPS interactive use.
+- It is not the right choice for concurrent multi-user serving where batch size or fan-out is expected to improve throughput.
+- If you need throughput scaling under load, the data supports a batched or GPU-backed engine instead.
+
+---
+
 ### Benchmark Artifacts
 
 All results generated to `eval_reports/`:
