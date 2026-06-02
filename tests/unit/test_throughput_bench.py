@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 import json
 
+import pytest
+
 
 # Robust import: add repo root to sys.path if needed so tests can run in CI and local
 try:
@@ -26,6 +28,8 @@ ollama_tokens_per_second = bench_mod.ollama_tokens_per_second
 write_results_json = bench_mod.write_results_json
 write_markdown_summary = bench_mod.write_markdown_summary
 BenchResult = bench_mod.BenchResult
+OllamaBench = bench_mod.OllamaBench
+HFBench = bench_mod.HFBench
 
 
 def test_bench_module_loads_and_has_classes():
@@ -83,6 +87,65 @@ def test_result_writers(tmp_path):
     assert "fake/model" in md
 
 
+def test_ollama_run_warms_up_before_measurement(monkeypatch):
+    cfg = BenchConfig(
+        backend="ollama",
+        model="llama3.2:1b",
+        concurrency=1,
+        batch_size=1,
+        n_requests=2,
+        prompt_length=50,
+        base_url=None,
+    )
+    bench = OllamaBench(cfg, [{"text": "p1"}, {"text": "p2"}])
+    call_log = []
+
+    async def fake_total(prompt):
+        call_log.append(("total", prompt))
+        return 10.0, 20.0, True
+
+    async def fake_ttft(prompt):
+        call_log.append(("ttft", prompt))
+        return 5.0, True
+
+    monkeypatch.setattr(bench, "measure_total_latency_and_tps", fake_total)
+    monkeypatch.setattr(bench, "measure_ttft_stream", fake_ttft)
+
+    result = asyncio.run(bench.run())
+
+    assert result.requests_succeeded == 10
+    assert call_log[0] == ("total", "p1")
+    assert call_log[1] == ("ttft", "p1")
+    assert len([item for item in call_log if item[0] == "total"]) == 11
+    assert len([item for item in call_log if item[0] == "ttft"]) == 11
+
+
+def test_hf_run_warms_up_before_measurement(monkeypatch):
+    cfg = BenchConfig(
+        backend="hf",
+        model="fake/model",
+        concurrency=1,
+        batch_size=4,
+        n_requests=2,
+        prompt_length=50,
+    )
+    monkeypatch.setattr(bench_mod, "pipeline", None)
+    bench = HFBench(cfg, [{"text": "p1"}, {"text": "p2"}])
+    call_log = []
+
+    async def fake_generate_batch(prompts):
+        call_log.append(list(prompts))
+        return 0.1, 10, True
+
+    monkeypatch.setattr(bench, "_generate_batch", fake_generate_batch)
+
+    result = asyncio.run(bench.run())
+
+    assert result.requests_succeeded == 10
+    assert call_log[0] == ["p1", "p1", "p1", "p1"]
+    assert len(call_log) == 11
+
+
 def test_run_benchmark_skips_when_unavailable():
     # Use an event loop to check that run_benchmark raises RuntimeError when backend unavailable
     cfg = BenchConfig(
@@ -101,6 +164,5 @@ def test_run_benchmark_skips_when_unavailable():
             return True
         return False
 
-    loop = asyncio.get_event_loop()
-    skipped = loop.run_until_complete(_run())
+    skipped = asyncio.run(_run())
     assert skipped is True

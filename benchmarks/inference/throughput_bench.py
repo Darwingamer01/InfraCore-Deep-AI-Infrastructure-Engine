@@ -192,6 +192,11 @@ class OllamaBench(BenchBase):
         if not prompts:
             prompts = ["Hello"]
 
+        # Warm up the Ollama server so cold-start allocations do not pollute the first measured sample.
+        warmup_prompt = prompts[0]
+        await self.measure_total_latency_and_tps(warmup_prompt)
+        await self.measure_ttft_stream(warmup_prompt)
+
         ram_before = psutil.Process().memory_info().rss / (1024**2)
         latencies: list[float] = []
         ttfts: list[float] = []
@@ -286,6 +291,10 @@ class HFBench(BenchBase):
         base_prompts = [p["text"] for p in self.prompts if p.get("text")]
         if not base_prompts:
             base_prompts = ["Hello world"]
+
+        # Warm up the HF pipeline so the first timed batch reflects steady-state behavior.
+        warmup_batch = [base_prompts[0] for _ in range(max(1, self.config.batch_size))]
+        await self._generate_batch(warmup_batch)
 
         latencies_ms: list[float] = []
         total_tokens = 0
