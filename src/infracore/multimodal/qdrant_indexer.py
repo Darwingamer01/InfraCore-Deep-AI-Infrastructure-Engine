@@ -58,7 +58,28 @@ class QdrantMultimodalIndexer:
 
     def _ensure_collection(self) -> None:
         try:
-            self.client.get_collection(self.collection_name)
+            collection = self.client.get_collection(self.collection_name)
+            # If collection exists but vector size differs, recreate it
+            try:
+                existing_size = collection.config.vectors.size
+                if existing_size != self.vector_size:
+                    logger.info(
+                        "Collection '%s' exists with size %d but expected %d; recreating",
+                        self.collection_name,
+                        existing_size,
+                        self.vector_size,
+                    )
+                    try:
+                        self.client.delete_collection(self.collection_name)
+                    except Exception:
+                        pass
+                    self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
+                    )
+            except Exception:
+                # If we can't introspect, ensure a collection exists
+                pass
         except Exception:
             logger.info("Creating collection '%s' with vector size %d", self.collection_name, self.vector_size)
             self.client.create_collection(
@@ -101,6 +122,7 @@ class QdrantMultimodalIndexer:
         page: Optional[int] = None,
         bounding_box: Optional[Dict[str, Any]] = None,
         confidence: Optional[float] = None,
+        bbox: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Index text and/or image for a document into a single collection."""
         await self._auto_detect_vector_size()
@@ -129,6 +151,37 @@ class QdrantMultimodalIndexer:
         except Exception:
             vector_list = list(vector)
 
+        # Ensure collection matches actual vector size (recover if constructor created a different size)
+        try:
+            actual_len = len(vector_list)
+            if self._vector_size_override is None:
+                self.vector_size = actual_len
+        except Exception:
+            actual_len = self.vector_size
+
+        # Ensure collection matches actual vector size before upsert; recreate if mismatch
+        try:
+            try:
+                col = self.client.get_collection(self.collection_name)
+                existing_size = col.config.vectors.size
+                if existing_size != actual_len:
+                    try:
+                        self.client.delete_collection(self.collection_name)
+                    except Exception:
+                        pass
+                    self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(size=actual_len, distance=Distance.COSINE),
+                    )
+            except Exception:
+                # collection missing or introspection failed
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(size=actual_len, distance=Distance.COSINE),
+                )
+        except Exception as e:
+            logger.debug("Failed to ensure proper collection size pre-upsert: %s", e)
+
         payload: Dict[str, Any] = {
             "source_type": source_type,
             "doc_id": doc_id,
@@ -136,8 +189,12 @@ class QdrantMultimodalIndexer:
         }
         if page is not None:
             payload["page"] = page
-        if bounding_box is not None:
-            payload["bounding_box"] = bounding_box
+        
+        actual_bbox = bbox or bounding_box
+        if actual_bbox is not None:
+            payload["bounding_box"] = actual_bbox
+            payload["bbox"] = actual_bbox
+
         if confidence is not None:
             payload["confidence"] = confidence
 
@@ -189,7 +246,7 @@ class QdrantMultimodalIndexer:
                 source_id=payload.get("doc_id", "unknown"),
                 snippet=payload.get("snippet", ""),
                 page=payload.get("page"),
-                bounding_box=payload.get("bounding_box"),
+                bounding_box=payload.get("bounding_box") or payload.get("bbox"),
                 confidence=payload.get("confidence", p.score),
             )
             sources.append(source)
@@ -223,7 +280,7 @@ class QdrantMultimodalIndexer:
                 source_id=payload.get("doc_id", "unknown"),
                 snippet=payload.get("snippet", ""),
                 page=payload.get("page"),
-                bounding_box=payload.get("bounding_box"),
+                bounding_box=payload.get("bounding_box") or payload.get("bbox"),
                 confidence=payload.get("confidence", p.score),
             )
             sources.append(source)
