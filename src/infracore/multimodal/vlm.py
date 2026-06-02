@@ -1,9 +1,26 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Any, List, Optional, Dict
 import logging
 import os
+
+try:
+    import torch
+except Exception:  # pragma: no cover - optional dependency
+    torch = None
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional dependency
+    Image = None
+
+try:
+    from transformers import BlipForQuestionAnswering, BlipProcessor
+except Exception:  # pragma: no cover - optional dependency
+    BlipProcessor = None
+    BlipForQuestionAnswering = None
 
 from .ocr import OCRResult
 
@@ -102,11 +119,12 @@ class RuleBasedBackend(Backend):
         return AnswerResult(text="", sources=[], confidence=0.0)
 
 
-class BlipBackend(Backend):
+class BlipDocumentQABackend(Backend):
     """BLIP-based VQA backend: visual question answering with learned model.
 
     This backend uses Salesforce/blip-vqa-base for improved answer quality.
-    Falls back to rule-based matching if BLIP model or images are unavailable.
+    Falls back to rule-based matching if the model, image payload, or runtime
+    dependencies are unavailable.
     """
 
     def __init__(self, model_id: str = "Salesforce/blip-vqa-base"):
@@ -114,40 +132,83 @@ class BlipBackend(Backend):
         self._model = None
         self._processor = None
         self._rule_fallback = RuleBasedBackend()
+        self._device = "cpu"
 
     def _load_model(self):
         """Lazy load BLIP model and processor."""
-        if self._model is None:
-            try:
-                from transformers import BlipProcessor, BlipForQuestionAnswering
-                import torch
+        if self._model is not None or self._processor is not None:
+            return
+        if BlipProcessor is None or BlipForQuestionAnswering is None or torch is None:
+            logger.warning("transformers/torch not available for BLIP backend; falling back to rule-based")
+            self._model = "unavailable"
+            return
 
-                self._processor = BlipProcessor.from_pretrained(self.model_id)
-                self._model = BlipForQuestionAnswering.from_pretrained(self.model_id)
-                
-                # Move to available device
-                device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-                self._model = self._model.to(device)
-                logger.info("Loaded BLIP model %s on device %s", self.model_id, device)
-            except ImportError:
-                logger.warning("transformers library not available for BLIP backend; falling back to rule-based")
-                self._model = "unavailable"
-            except Exception as e:
-                logger.warning("Failed to load BLIP model: %s; falling back to rule-based", e)
-                self._model = "unavailable"
+        try:
+            self._processor = BlipProcessor.from_pretrained(self.model_id)
+            self._model = BlipForQuestionAnswering.from_pretrained(self.model_id)
+
+            if torch.cuda.is_available():
+                self._device = "cuda"
+            elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+                self._device = "mps"
+            else:
+                self._device = "cpu"
+
+            self._model = self._model.to(self._device)
+            logger.info("Loaded BLIP model %s on device %s", self.model_id, self._device)
+        except Exception as e:
+            logger.warning("Failed to load BLIP model: %s; falling back to rule-based", e)
+            self._model = "unavailable"
+
+    def _extract_image(self, context: Dict[str, Any]) -> Any | None:
+        image = context.get("image") or context.get("image_bytes") or context.get("pil_image")
+        if image is None:
+            return None
+        if Image is None:
+            return None
+        if hasattr(image, "convert"):
+            return image.convert("RGB")
+        if isinstance(image, bytes):
+            return Image.open(BytesIO(image)).convert("RGB")
+        if isinstance(image, str):
+            return Image.open(image).convert("RGB")
+        return None
+
+    async def _answer_with_blip(self, question: str, context: Dict[str, Any]) -> str:
+        image = self._extract_image(context)
+        if image is None or self._model == "unavailable" or self._processor is None:
+            return ""
+
+        inputs = self._processor(images=image, text=question, return_tensors="pt")
+        if hasattr(inputs, "to"):
+            inputs = inputs.to(self._device)
+        elif isinstance(inputs, dict):
+            inputs = {key: value.to(self._device) if hasattr(value, "to") else value for key, value in inputs.items()}
+
+        generated_ids = self._model.generate(**inputs)
+        if hasattr(self._processor, "tokenizer") and self._processor.tokenizer is not None:
+            return self._processor.tokenizer.decode(generated_ids[0], skip_special_tokens=True).strip()
+        if hasattr(self._processor, "decode"):
+            return self._processor.decode(generated_ids[0], skip_special_tokens=True).strip()
+        return ""
 
     async def answer(self, question: str, contexts: List[Dict[str, Any]]) -> AnswerResult:
         """Use BLIP VQA to answer, falling back to rule-based if unavailable."""
         self._load_model()
 
-        # If BLIP unavailable, use rule-based fallback
-        if self._model == "unavailable":
-            return await self._rule_fallback.answer(question, contexts)
+        fallback = await self._rule_fallback.answer(question, contexts)
+        if self._model == "unavailable" or self._processor is None:
+            return fallback
 
-        # Try BLIP on first context with image if available
-        # For now, just use rule-based since we don't have images in contexts
-        # Future: if contexts include image paths/tensors, load and run BLIP
-        return await self._rule_fallback.answer(question, contexts)
+        for context in contexts:
+            blip_text = await self._answer_with_blip(question, context)
+            if blip_text:
+                return AnswerResult(text=blip_text, sources=fallback.sources, confidence=fallback.confidence)
+
+        return fallback
+
+
+BlipBackend = BlipDocumentQABackend
 
 
 class VLMDocumentQA:
@@ -181,7 +242,7 @@ class VLMDocumentQA:
 
         if backend == "blip":
             model_id = os.environ.get("BLIP_MODEL_ID", "Salesforce/blip-vqa-base")
-            self.backend = BlipBackend(model_id=model_id)
+            self.backend = BlipDocumentQABackend(model_id=model_id)
         else:  # default to rule
             self.backend = RuleBasedBackend()
 
@@ -256,6 +317,7 @@ class VLMDocumentQA:
                 "source_id": ocr_meta["source_id"],
                 "text": o.text,
                 "snippet": (o.text or "")[:200],
+                "image": getattr(o, "image", None),
                 "page": ocr_meta.get("page"),
                 "bounding_box": ocr_meta.get("bounding_box"),
                 "coordinates": ocr_meta.get("coordinates"),
@@ -270,6 +332,7 @@ class VLMDocumentQA:
                 "source_id": doc.get("id", ""),
                 "text": text,
                 "snippet": (text or "")[:200],
+                "image": doc.get("image") or doc.get("image_bytes") or doc.get("pil_image"),
                 "page": doc.get("page"),
                 "bounding_box": doc.get("bounding_box"),
                 "coordinates": doc.get("coordinates"),

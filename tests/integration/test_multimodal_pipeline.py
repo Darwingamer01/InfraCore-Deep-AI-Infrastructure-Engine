@@ -194,49 +194,86 @@ async def test_multimodal_pipeline_graceful_fallback():
 
 
 @pytest.mark.asyncio
-async def test_blip_backend_optional():
-    """Optional: Test BLIP backend if transformers library is available.
-    
-    This test skips gracefully if transformers/BLIP is not installed.
-    Requires: pip install transformers torch
-    Run with: PYTHONPATH=src pytest tests/integration/test_multimodal_pipeline.py::test_blip_backend_optional -q -vv -s
+async def test_blip_backend_optional(monkeypatch):
+    """Optional BLIP backend wiring test with no heavy model download.
+
+    The test skips if torch/transformers are unavailable, then monkeypatches the
+    BLIP loader so we can validate the real answer path and provenance wiring
+    without fetching model weights.
     """
-    
-    try:
-        from transformers import BlipProcessor, BlipForQuestionAnswering  # noqa: F401
-    except ImportError:
-        pytest.skip("transformers library not available; skipping BLIP backend test")
-    
-    # Initialize VLMDocumentQA with BLIP backend
+
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+
+    from infracore.multimodal import vlm as vlm_mod
+
+    class DummyInputs(dict):
+        def to(self, device):
+            return self
+
+    class DummyTokenizer:
+        def decode(self, token_ids, skip_special_tokens=True):
+            return "invoice total is five thousand dollars"
+
+    class DummyProcessor:
+        def __init__(self):
+            self.tokenizer = DummyTokenizer()
+            self.last_call = None
+
+        def __call__(self, images=None, text=None, return_tensors=None):
+            self.last_call = {"images": images, "text": text, "return_tensors": return_tensors}
+            return DummyInputs(pixel_values=torch.zeros((1, 3, 224, 224)), input_ids=torch.ones((1, 4), dtype=torch.long))
+
+        @classmethod
+        def from_pretrained(cls, model_id):
+            return cls()
+
+    class DummyModel:
+        def __init__(self):
+            self.device = None
+
+        def to(self, device):
+            self.device = device
+            return self
+
+        def generate(self, **kwargs):
+            return torch.tensor([[1, 2, 3]])
+
+        @classmethod
+        def from_pretrained(cls, model_id):
+            return cls()
+
+    monkeypatch.setattr(vlm_mod, "BlipProcessor", DummyProcessor)
+    monkeypatch.setattr(vlm_mod, "BlipForQuestionAnswering", DummyModel)
+
     vlm = VLMDocumentQA(backend="blip")
     assert vlm.backend_name == "blip", "Should use BLIP backend"
-    
-    # Test with simple text-based context (BLIP VQA fallback)
+
     retrieved_docs = [
         {
             "id": "doc:invoice-001",
             "text": "Invoice Total: $5,000.00. Payment due within 30 days.",
+            "image": b"fake-image-bytes",
             "page": 1,
             "confidence": 0.95,
         }
     ]
-    
-    # Query using BLIP backend (currently falls back to rule-based since we don't have images)
+
     answer = await vlm.answer(
         question="What is the invoice total?",
         ocr_results=[],
         retrieved=retrieved_docs,
     )
-    
-    # Verify structure
+
     assert isinstance(answer, AnswerResult), "Should return AnswerResult"
-    assert answer.text, "Should produce an answer"
+    assert answer.text == "invoice total is five thousand dollars"
     assert len(answer.sources) > 0, "Should have sources"
-    
+
     source = answer.sources[0]
     assert isinstance(source, Source), "Should be a Source object"
     assert source.source_type == "retrieved", "Source should be from retrieval"
-    
+    assert source.source_id == "doc:invoice-001"
+
     print(f"\n--- BLIP Backend Integration Test ---")
     print(f"Backend: {vlm.backend_name}")
     print(f"Answer (confidence={answer.confidence:.2f}): {answer.text}")
