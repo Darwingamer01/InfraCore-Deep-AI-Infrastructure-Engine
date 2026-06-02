@@ -5,6 +5,50 @@
 
 **Key Finding:** vLLM's batching architecture delivers **8-9x higher throughput** under concurrency (8 concurrent requests) compared to Ollama's sequential processing model. Both are production-viable, but for fundamentally different use cases.
 
+### Quick Runbook
+
+Use the new throughput harness in `benchmarks/inference/throughput_bench.py` when you want a small, repeatable sanity check.
+
+**Prerequisites**
+- Ollama: run `ollama serve` locally and make sure `http://localhost:11434/api/tags` responds.
+- Hugging Face: install `transformers`, `torch`, and a text-generation model that fits local hardware.
+- Python: activate the project virtual environment and run from the repo root.
+
+**Local run examples**
+```bash
+# Ollama sanity check
+source .venv/bin/activate
+PYTHONPATH=. python benchmarks/inference/throughput_bench.py \
+   --backend ollama \
+   --model llama3.2:1b \
+   --batch-size 1 \
+   --prompt-length 50 \
+   --output eval_reports
+
+# Optional Hugging Face run (skip if model or runtime is unavailable)
+PYTHONPATH=. python benchmarks/inference/throughput_bench.py \
+   --backend hf \
+   --model <hf-model-name> \
+   --batch-size 4 \
+   --prompt-length 200 \
+   --device cpu \
+   --output eval_reports
+```
+
+**Graceful skips**
+- The harness checks engine availability before running.
+- If Ollama is offline or the HF pipeline cannot initialize, the run prints `Skipping benchmark: ...` and exits cleanly.
+
+**Generated outputs**
+- JSON: timestamped benchmark payload with config and per-run summary.
+- Markdown: `throughput_bench_summary.md` with engine/model/batch/tokens/sec/p99/memory.
+- Charts: `throughput_vs_latency.png` and `memory_vs_batch.png`.
+
+**How to read the metrics**
+- `tokens/sec`: throughput. Higher is better and usually means better cost efficiency.
+- `p99 latency`: tail latency. Lower is better for user-facing and SLA-bound systems.
+- `memory footprint`: RSS on CPU, or CUDA allocated memory when available. Lower is better for smaller machines and higher concurrency.
+
 ---
 
 ### Benchmark Results Table
