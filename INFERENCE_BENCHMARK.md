@@ -144,6 +144,14 @@ This section summarizes the narrow Ollama-only sanity matrix run against `llama3
 - It is not the right choice for concurrent multi-user serving where batch size or fan-out is expected to improve throughput.
 - If you need throughput scaling under load, the data supports a batched or GPU-backed engine instead.
 
+### Model-Parity Caveat: HF vs Ollama
+
+The Hugging Face comparison in this run uses `sshleifer/tiny-gpt2`, which is a ~117M toy model chosen to validate the HF adapter and batching path, not a production serving target. By contrast, `llama3.2:1b` is a production-grade 1B instruction model served through Ollama's HTTP API.
+
+That means the throughput and latency gap reflects both model size and serving architecture, not adapter efficiency alone. A fair HF comparison would need a similarly sized model, such as a 1B-class instruct model, run with the same batch settings and prompt mix.
+
+The batching fix applied during this run is also worth recording: GPT-style Hugging Face pipelines need a `pad_token_id` for batched generation, so the harness now falls back to `eos_token_id` when the tokenizer does not define a pad token.
+
 ---
 
 ### Benchmark Artifacts
