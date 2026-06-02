@@ -13,10 +13,12 @@ from pydantic import ConfigDict, Field
 
 from src.infracore.embedding.base import BaseEmbedder
 from src.infracore.retrieval.base import BaseRetriever, RetrieverConfig, RetrievalResult
+from src.infracore.retrieval.reranker import CrossEncoderReranker
 from src.infracore.vectordb.base import BaseVectorStore, SearchResult
 
 
 class HybridConfig(RetrieverConfig):
+
     """Hybrid retrieval configuration."""
 
     model_config = ConfigDict(frozen=True)
@@ -132,11 +134,13 @@ class HybridRetriever(BaseRetriever):
         config: HybridConfig,
         vector_store: BaseVectorStore,
         embedder: BaseEmbedder,
+        reranker: Optional[CrossEncoderReranker] = None,
     ):
         super().__init__(config)
         self.config = config
         self.vector_store = vector_store
         self.embedder = embedder
+        self.reranker = reranker
 
         # BM25 index
         self.bm25 = BM25Index(k1=config.bm25_k1, b=config.bm25_b)
@@ -255,6 +259,10 @@ class HybridRetriever(BaseRetriever):
                         metadata={"doc_id": doc_id, "retrieval_method": "hybrid"},
                     )
                 )
+
+            # Apply reranker if configured
+            if self.reranker is not None and results:
+                results = await self.reranker.rerank(query, results)
 
             # Record metrics
             self._counter.inc()
