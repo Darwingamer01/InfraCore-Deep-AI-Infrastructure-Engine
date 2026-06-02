@@ -84,12 +84,23 @@ class QdrantRetriever:
         try:
             self.client.get_collection(self.collection_name)
             logger.debug("Collection '%s' already exists", self.collection_name)
-        except Exception:
+        except Exception as e:
+            # Check if this exception is a connection error
+            err_str = str(e).lower()
+            if "connection" in err_str or "refused" in err_str or "reach" in err_str or "timeout" in err_str or "http connection" in err_str:
+                raise ConnectionError(f"Failed to connect to Qdrant server: {e}") from e
+            
             logger.info("Creating collection '%s' with vector size %d", self.collection_name, self.vector_size)
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
-            )
+            try:
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
+                )
+            except Exception as ce:
+                ce_str = str(ce).lower()
+                if "already exists" in ce_str:
+                    return
+                raise ConnectionError(f"Failed to connect/create collection on Qdrant server: {ce}") from ce
 
     async def _auto_detect_vector_size(self):
         """Auto-detect embedding vector size from embedder on first use."""
@@ -136,6 +147,7 @@ class QdrantRetriever:
         page: int | None = None,
         bounding_box: Dict[str, Any] | None = None,
         confidence: float | None = None,
+        bbox: Dict[str, Any] | None = None,
     ):
         """Index a document with optional image and text.
         
@@ -178,8 +190,10 @@ class QdrantRetriever:
         
         if page is not None:
             payload["page"] = page
-        if bounding_box is not None:
-            payload["bounding_box"] = bounding_box
+        actual_bbox = bbox or bounding_box
+        if actual_bbox is not None:
+            payload["bounding_box"] = actual_bbox
+            payload["bbox"] = actual_bbox
         if confidence is not None:
             payload["confidence"] = confidence
 
@@ -358,7 +372,7 @@ class QdrantRetriever:
                 source_id=payload.get("doc_id", "unknown"),
                 snippet=payload.get("snippet", ""),
                 page=payload.get("page"),
-                bounding_box=payload.get("bounding_box"),
+                bounding_box=payload.get("bounding_box") or payload.get("bbox"),
                 confidence=payload.get("confidence", scored_point.score),
             )
             sources.append(source)
@@ -428,7 +442,7 @@ class QdrantRetriever:
                 source_id=payload.get("doc_id", "unknown"),
                 snippet=payload.get("snippet", ""),
                 page=payload.get("page"),
-                bounding_box=payload.get("bounding_box"),
+                bounding_box=payload.get("bounding_box") or payload.get("bbox"),
                 confidence=payload.get("confidence", scored_point.score),
             )
             sources.append(source)
