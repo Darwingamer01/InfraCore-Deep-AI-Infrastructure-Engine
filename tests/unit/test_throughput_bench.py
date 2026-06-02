@@ -146,6 +146,48 @@ def test_hf_run_warms_up_before_measurement(monkeypatch):
     assert len(call_log) == 11
 
 
+def test_hf_pipeline_pad_token_is_configured(monkeypatch):
+    class DummyTokenizer:
+        def __init__(self):
+            self.eos_token_id = 50256
+            self.eos_token = "<eos>"
+            self.pad_token_id = None
+            self.pad_token = None
+
+    class DummyModelConfig:
+        def __init__(self):
+            self.pad_token_id = None
+
+    class DummyModel:
+        def __init__(self):
+            self.config = DummyModelConfig()
+
+    class DummyPipeline:
+        def __init__(self):
+            self.tokenizer = DummyTokenizer()
+            self.model = DummyModel()
+
+        def __call__(self, *args, **kwargs):
+            return [[{"generated_text": "dummy output"}]]
+
+    monkeypatch.setattr(bench_mod, "pipeline", lambda *args, **kwargs: DummyPipeline())
+
+    cfg = BenchConfig(
+        backend="hf",
+        model="sshleifer/tiny-gpt2",
+        concurrency=1,
+        batch_size=4,
+        n_requests=2,
+        prompt_length=50,
+        device="cpu",
+    )
+    bench = HFBench(cfg, [{"text": "p1"}, {"text": "p2"}])
+    assert bench.generator is not None
+    assert bench.generator.tokenizer.pad_token_id == 50256
+    assert bench.generator.tokenizer.pad_token == "<eos>"
+    assert bench.generator.model.config.pad_token_id == 50256
+
+
 def test_run_benchmark_skips_when_unavailable():
     # Use an event loop to check that run_benchmark raises RuntimeError when backend unavailable
     cfg = BenchConfig(

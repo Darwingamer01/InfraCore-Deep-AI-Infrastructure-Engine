@@ -244,6 +244,15 @@ class HFBench(BenchBase):
             try:
                 device = 0 if (config.device != "cpu" and torch is not None and torch.cuda.is_available()) else -1
                 self.generator = pipeline("text-generation", model=config.model, device=device)
+                tokenizer = getattr(self.generator, "tokenizer", None)
+                model = getattr(self.generator, "model", None)
+                eos_token_id = getattr(tokenizer, "eos_token_id", None)
+                if tokenizer is not None and getattr(tokenizer, "pad_token_id", None) is None and eos_token_id is not None:
+                    tokenizer.pad_token_id = eos_token_id
+                    if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None) is not None:
+                        tokenizer.pad_token = tokenizer.eos_token
+                if model is not None and getattr(model, "config", None) is not None and getattr(model.config, "pad_token_id", None) is None and eos_token_id is not None:
+                    model.config.pad_token_id = eos_token_id
             except Exception:
                 self.generator = None
 
