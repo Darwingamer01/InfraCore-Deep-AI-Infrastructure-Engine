@@ -3,6 +3,14 @@
 > [!NOTE]  
 > **InfraCore is a backend-heavy AI systems project.** It does not focus on simple chatbot wrappers. Instead, it implements and profiles the underlying systems layers that power production-grade Retrieval-Augmented Generation (RAG), inference routing, multimodal indexing, and continuous quality evaluation.
 
+### 🎯 Why InfraCore Exists
+* **Most AI projects focus on model outputs.**
+* **InfraCore focuses on the infrastructure layers that determine:**
+  * **Retrieval Quality** (indexing, semantic layout mapping, and rank fusion)
+  * **Inference Reliability** (availability caching, failover routers, and batch serving)
+  * **System Observability** (Prometheus counters, histograms, and continuous CI evaluation)
+* **The project was built to explore how production AI systems are engineered beyond a single model API call.**
+
 ---
 
 ## 📊 Codebase Metrics & System Composition
