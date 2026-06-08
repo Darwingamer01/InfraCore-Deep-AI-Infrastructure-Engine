@@ -129,19 +129,22 @@ The HNSW graph parameters control the balance between retrieval recall and tail 
 * **Curse of Dimensionality**: Scaling from 384D (e.g. BGE-M3) to 1024D (e.g. E5-large) drops retrieval QPS by **~39%** for identical HNSW configurations due to distance calculation complexity.
 * *Evidence details are documented in [VECTORDB_BENCHMARK.md](file:///Users/utkarshchoudhary/Documents/Projects/Ai-project/docs/VECTORDB_BENCHMARK.md).*
 
-### 2. Inference Server Throughput Scaling (vLLM vs Ollama)
-Tested under load simulation to contrast vLLM’s request-batching (PagedAttention) model against Ollama's sequential model:
+### 2. Projected Concurrency & Scaling (vLLM Baselines vs Local Ollama)
+Contrast of vLLM’s request-batching (PagedAttention) architecture against local sequential Ollama processing. 
+
+> [!IMPORTANT]  
+> **Benchmark Attribution**: Local Ollama metrics are active measurements taken on the MacBook Air M4 CPU. vLLM metrics represent projected server-class baseline scaling (simulated loads for NVIDIA GPU setups) to illustrate high-concurrency request execution behavior:
 
 | Serving Backend | Concurrency | Throughput | TTFT (mean) | p50 Latency | p99 Latency | SLA Status |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Ollama (CPU)** | 1 (Baseline) | 40.7 tok/s | 256.9 ms | 1,097.4 ms | 1,219.0 ms | ✅ Compliant (<1.5s SLA) |
-| **Ollama (CPU)** | 4 | 47.3 tok/s | 857.4 ms | 3,301.9 ms | 3,406.5 ms | ❌ Violates SLA (queue delay) |
-| **Ollama (CPU)** | 8 | 45.8 tok/s | 1,467.7 ms | 5,804.0 ms | 6,814.5 ms | ❌ Violates SLA (queue collapse) |
-| **vLLM (GPU Batch)** | 1 (Baseline) | 72.5 tok/s | 180.0 ms | 890.0 ms | 1,000.0 ms | ✅ Compliant (<1.5s SLA) |
-| **vLLM (GPU Batch)** | 4 | 215.0 tok/s | 185.0 ms | 750.0 ms | 890.0 ms | ✅ Compliant (<1.5s SLA) |
-| **vLLM (GPU Batch)** | 8 | **380.0 tok/s** | **190.0 ms** | 950.0 ms | 1,250.0 ms | ✅ Compliant (<1.5s SLA) |
+| **Ollama (Local CPU)** | 1 (Baseline) | 40.7 tok/s | 256.9 ms | 1,097.4 ms | 1,219.0 ms | ✅ Compliant (<1.5s SLA) |
+| **Ollama (Local CPU)** | 4 | 47.3 tok/s | 857.4 ms | 3,301.9 ms | 3,406.5 ms | ❌ Violates SLA (queue delay) |
+| **Ollama (Local CPU)** | 8 | 45.8 tok/s | 1,467.7 ms | 5,804.0 ms | 6,814.5 ms | ❌ Violates SLA (queue collapse) |
+| **vLLM (Projected GPU)** | 1 (Baseline) | 72.5 tok/s | 180.0 ms | 890.0 ms | 1,000.0 ms | ✅ Compliant (<1.5s SLA) |
+| **vLLM (Projected GPU)** | 4 | 215.0 tok/s | 185.0 ms | 750.0 ms | 890.0 ms | ✅ Compliant (<1.5s SLA) |
+| **vLLM (Projected GPU)** | 8 | **380.0 tok/s** | **190.0 ms** | 950.0 ms | 1,250.0 ms | ✅ Compliant (<1.5s SLA) |
 
-* **Concurrency Scaling**: While Ollama's sequential CPU throughput remains flat, vLLM's batching scale-up achieves **8.3x higher throughput** under concurrency (380 tok/s vs 45.8 tok/s at c8).
+* **Concurrency Scaling**: While Ollama's sequential CPU throughput remains flat, vLLM's batching scale-up achieves a projected **8.3x higher throughput** under concurrency (380 tok/s vs 45.8 tok/s at c8).
 * **TTFT Stability**: vLLM holds TTFT steady at ~190ms, while Ollama's TTFT degrades linearly to **1.47 seconds** under load.
 * *Evidence details are documented in [INFERENCE_BENCHMARK.md](file:///Users/utkarshchoudhary/Documents/Projects/Ai-project/docs/INFERENCE_BENCHMARK.md).*
 
@@ -162,9 +165,9 @@ Below is visual validation of our active system metrics, vector distributions, a
 
 ---
 
-## 🚢 Production Deployment Strategy
+## 🚢 Production Reference Architecture
 
-InfraCore is architected as a modular, cloud-native containerized platform. Rather than running as a monolithic application, it splits concerns across decoupled services:
+InfraCore is designed as a modular, cloud-native containerized platform. The target topology outlines how concerns are split across decoupled services for production deployments:
 
 ```mermaid
 flowchart TD
@@ -190,12 +193,12 @@ flowchart TD
     Grafana[Grafana Dashboard] --> Prom
 ```
 
-### 1. Multi-Stage Deployment Stages
-* **Development / Local**: Starts the FastAPI gateway, local Qdrant server, and Prometheus collector on the local machine using `docker-compose.yml`.
-* **Staging / Production**:
-  * **Gateway API**: Deployed as stateless replica pods on Kubernetes (EKS/GKE), auto-scaled via HPA based on CPU/Request count.
+### 1. Multi-Stage Target Topologies
+* **Local Development**: Starts the FastAPI gateway, local Qdrant server, and Prometheus collector on your local machine using `docker-compose.yml`.
+* **Production Reference Plan**:
+  * **Gateway API**: Stateless replica pods on Kubernetes (EKS/GKE), auto-scaled via HPA based on CPU/Request load.
   * **Vector Database**: Qdrant deployed as a distributed stateful set with persistent volume claims, utilizing raft-consensus clustering.
-  * **Inference Serving**: vLLM instances deployed on GPU-enabled nodes (e.g. AWS `g5.xlarge` with NVIDIA A10G), leveraging Ray cluster orchestration for tensor parallelism.
+  * **Inference Serving**: vLLM instances deployed on GPU-enabled node pools (e.g. AWS `g5.xlarge` with NVIDIA A10G), leveraging Ray cluster orchestration for tensor parallelism.
 
 ### 2. Failure Recovery & SLA Safeguards
 * **Graceful Degradation**: If vLLM instances fail health checks (e.g., CUDA OOM or network partition), the `InferenceRouter` dynamically shifts traffic to Ollama CPU nodes.
